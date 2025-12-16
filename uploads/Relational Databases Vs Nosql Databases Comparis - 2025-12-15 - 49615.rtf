@@ -1,0 +1,208 @@
+{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs36 Relational Databases (SQL) vs NoSQL Databases\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs32 1. Relational Databases (SQL)\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Definition\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Relational databases store data in tables (rows and columns) with a predefined schema that ensures data consistency. Data relationships are enforced using primary and foreign keys, and data is accessed through Structured Query Language (SQL). Examples: MySQL, PostgreSQL, Oracle, Microsoft SQL Server.\par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Advantages\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab Data Integrity and Accuracy (ACID Compliance)\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Ensures reliable transactions using Atomicity, Consistency, Isolation, and Durability.\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Ideal for applications handling money transfers, inventory tracking, and record management.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Structured Query Language (SQL)\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab SQL provides a standard and powerful way to perform complex queries, joins, and aggregations efficiently.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab Strong Data Relationships\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Designed to manage interrelated data; excellent for use cases with multiple table dependencies.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 4.\tx360\tab Data Validation and Constraints\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Enforces strict data types, unique keys, and relationships that maintain quality and prevent anomalies.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 5.\tx360\tab Mature Ecosystem\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Long history of use with extensive documentation, community support, and trusted performance optimization tools.\sa180\sa180\par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Disadvantages\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab Limited Scalability\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Primarily scales vertically (by upgrading hardware), not horizontally across multiple servers.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Schema Rigidity\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Altering the schema often requires redesigning tables, which can lead to downtime in production systems.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab Reduced Performance on Big or Complex Data\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Complex joins and heavy write loads reduce performance in large-scale environments.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 4.\tx360\tab Not Ideal for Unstructured Data\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Suited mainly for structured, tabular data; struggles with unstructured formats like JSON or images.\sa180\sa180\par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs32 2. NoSQL Databases\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Definition\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \u8220"NoSQL\u8221" stands for Not Only SQL. These databases don\u8217't rely on a fixed schema and can handle unstructured, semi-structured, or polymorphic data. They come in various types \u8212- key-value stores, document-based, graph-based, and columnar. Examples: MongoDB, Cassandra, DynamoDB, Redis, Neo4j.\par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Advantages\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab High Scalability (Horizontal Scaling)\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Designed for easy data distribution across servers and data centers.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Flexible Schema\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Schema-less structures allow quick adjustments as data requirements evolve.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab Performance and Speed\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Optimized for high-speed read and write operations.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 4.\tx360\tab Support for Unstructured and Semi-Structured Data\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Can store JSON, documents, graphs, and multimedia directly.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 5.\tx360\tab Fault Tolerance and High Availability\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Built-in replication and partitioning ensure minimal downtime and data resilience.\sa180\sa180\par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Disadvantages\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab Eventual Consistency (BASE Model)\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Data may take time to synchronize across nodes.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab No Standard Query Language\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Each NoSQL database has its own query methods or APIs, requiring unique expertise.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab Limited Relationship Handling\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Complex relationships and joins are managed at the application level.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 4.\tx360\tab Data Duplication\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Denormalized data improves speed but can lead to redundancy.\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 5.\tx360\tab Less Mature Ecosystem\par}
+{\pard \ql \f0 \sa0 \li720 \fi-360 \endash \tx360\tab Tools and standards are less established compared to traditional SQL systems.\sa180\sa180\par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs32 3. Head-to-Head Comparison\par}
+{
+\trowd \trgaph120
+\clbrdrb\brdrs\cellx2094\clbrdrb\brdrs\cellx6806\clbrdrb\brdrs\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Aspect\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Relational (SQL)\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 NoSQL\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Data Model\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Tables (Rows/Columns)\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Key-Value, Document, Graph, Column\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Schema\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Fixed / Predefined\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Flexible / Schema-less\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Scalability\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Vertical (Scale Up)\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Horizontal (Scale Out)\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Consistency\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Strong (ACID)\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Eventual (BASE)\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Performance\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Great for structured, small data\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Great for unstructured, large data\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Relationships\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Strong support via joins\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Weak; handled manually\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Query Language\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 SQL (standardized)\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Varies by database\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Use Cases\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Financial systems, ERP, CRM\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 IoT, social networks, analytics\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2094\cellx6806\cellx8638
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Examples\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Oracle, PostgreSQL, MySQL\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 MongoDB, Cassandra, Redis\par}
+\cell}
+}
+\intbl\row}
+{\pard \ql \f0 \sa180 \li0 \fi0 \par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs32 4. When to Use Each\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Use Relational Databases (SQL) when:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab You need reliable transactions and consistency.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab The data structure is stable and well-defined.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Your system relies heavily on data relationships. Examples: Banking systems, accounting, enterprise apps.\sa180\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs28 Use NoSQL Databases when:\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab You manage large-scale, evolving, or unstructured data.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab You need fast access and distributed scalability.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Rapid development and flexibility matter more than strict consistency. Examples: E-commerce personalization, social media data, IoT analytics.\sa180\par}
+{\pard \qc \f0 \sa180 \li0 \fi0 \emdash\emdash\emdash\emdash\emdash\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \b \fs32 Summary\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Relational Databases: precision, structure, and reliability.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab NoSQL Databases: speed, scalability, and flexibility.\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Modern systems often combine both (polyglot persistence) to get the best of each.\sa180\par}
+}

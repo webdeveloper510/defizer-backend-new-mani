@@ -1,0 +1,194 @@
+<h1 id="relational-databases-rdbms-vs-nosql-databases">Relational Databases (RDBMS) vs NoSQL Databases</h1>
+<h2 id="relational-databases-rdbms">Relational Databases (RDBMS)</h2>
+<p>Examples: MySQL, PostgreSQL, Oracle, Microsoft SQL Server<br />
+Structure: Data stored in tables (rows and columns)<br />
+Schema: Predefined and fixed<br />
+Query Language: SQL (Structured Query Language)</p>
+<hr />
+<h3 id="advantages-of-relational-databases">Advantages of Relational Databases</h3>
+<ol type="1">
+<li>Strong Data Integrity and Consistency
+<ul>
+<li>Follows ACID principles (Atomicity, Consistency, Isolation, Durability).</li>
+<li>Ideal for systems where data accuracy is critical (e.g., finance, accounting, ERP).</li>
+</ul></li>
+<li>Well-Structured and Normalized Data
+<ul>
+<li>Prevents data redundancy through normalization.</li>
+</ul></li>
+<li>Powerful Querying Capabilities with SQL
+<ul>
+<li>Enables complex joins, aggregations, and analytics.</li>
+</ul></li>
+<li>Mature and Reliable Technology
+<ul>
+<li>Secure, well-documented, and widely supported.</li>
+</ul></li>
+<li>Robust Security and Access Control
+<ul>
+<li>Fine-grained permissions, encryption, and auditing capabilities.</li>
+</ul></li>
+</ol>
+<hr />
+<h3 id="disadvantages-of-relational-databases">Disadvantages of Relational Databases</h3>
+<ol type="1">
+<li>Limited Scalability
+<ul>
+<li>Typically rely on vertical scaling (upgrading one powerful server), which is costly at scale.</li>
+</ul></li>
+<li>Rigid Schema Design
+<ul>
+<li>Altering table structures can require downtime or complex migrations.</li>
+</ul></li>
+<li>Performance Degradation Over Time
+<ul>
+<li>Complex queries and large datasets can reduce performance as data grows.</li>
+</ul></li>
+<li>Less Suitable for Unstructured Data
+<ul>
+<li>Struggles with JSON, multimedia, or loosely typed data.</li>
+</ul></li>
+<li>Difficult Distributed Implementation
+<ul>
+<li>Maintaining consistency across servers is complex and resource intensive.</li>
+</ul></li>
+</ol>
+<hr />
+<h2 id="nosql-databases">NoSQL Databases</h2>
+<p>Examples: MongoDB, Cassandra, Redis, DynamoDB, Neo4j, CouchDB<br />
+Structure: Flexible — documents, key-value pairs, graphs, or column families<br />
+Schema: Dynamic or schema-less</p>
+<hr />
+<h3 id="advantages-of-nosql-databases">Advantages of NoSQL Databases</h3>
+<ol type="1">
+<li>Flexible Data Model
+<ul>
+<li>Supports structured, semi-structured, and unstructured data (e.g., JSON).</li>
+</ul></li>
+<li>High Scalability and Performance
+<ul>
+<li>Built for horizontal scaling (adding more servers increases capacity and throughput).</li>
+</ul></li>
+<li>Handles Big Data and Real-Time Processing
+<ul>
+<li>Optimized for large-scale, high-speed systems such as IoT, analytics, and real-time apps.</li>
+</ul></li>
+<li>Fault Tolerance and High Availability
+<ul>
+<li>Automatic replication and distributed architecture enhance uptime and durability.</li>
+</ul></li>
+<li>Great for Cloud and Modern Web Applications
+<ul>
+<li>Ideal for microservices, distributed apps, and rapidly evolving systems.</li>
+</ul></li>
+</ol>
+<hr />
+<h3 id="disadvantages-of-nosql-databases">Disadvantages of NoSQL Databases</h3>
+<ol type="1">
+<li>Weaker Consistency Guarantees
+<ul>
+<li>Uses BASE model (Basically Available, Soft state, Eventually consistent).</li>
+</ul></li>
+<li>Lack of Standard Query Language
+<ul>
+<li>No universal standard like SQL, leading to vendor lock-in.</li>
+</ul></li>
+<li>Limited Support for Complex Transactions
+<ul>
+<li>Multi-record or multi-collection transactions may be unsupported.</li>
+</ul></li>
+<li>Potential Data Duplication
+<ul>
+<li>Denormalization can lead to redundancy and inconsistencies.</li>
+</ul></li>
+<li>Less Mature Ecosystem
+<ul>
+<li>Tooling, security, and monitoring may be less refined than RDBMS options.</li>
+</ul></li>
+</ol>
+<hr />
+<h2 id="comparison-summary-table">Comparison Summary Table</h2>
+<table>
+<colgroup>
+<col style="width: 17%" />
+<col style="width: 53%" />
+<col style="width: 28%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Feature</th>
+<th>Relational Database (RDBMS)</th>
+<th>NoSQL Database</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Data Model</td>
+<td>Tables (rows &amp; columns)</td>
+<td>Documents, key-value, graph, or column-based</td>
+</tr>
+<tr class="even">
+<td>Schema</td>
+<td>Fixed, predefined</td>
+<td>Flexible, dynamic</td>
+</tr>
+<tr class="odd">
+<td>Consistency Model</td>
+<td>Strong (ACID)</td>
+<td>Eventual (BASE)</td>
+</tr>
+<tr class="even">
+<td>Scalability</td>
+<td>Vertical (scale-up)</td>
+<td>Horizontal (scale-out)</td>
+</tr>
+<tr class="odd">
+<td>Best For</td>
+<td>Structured data &amp; relationships</td>
+<td>Unstructured or rapidly changing data</td>
+</tr>
+<tr class="even">
+<td>Performance</td>
+<td>Slower at very large scale</td>
+<td>Faster for high-volume operations</td>
+</tr>
+<tr class="odd">
+<td>Query Language</td>
+<td>SQL (standardized)</td>
+<td>Varies by database</td>
+</tr>
+<tr class="even">
+<td>Examples</td>
+<td>MySQL, PostgreSQL, Oracle</td>
+<td>MongoDB, Cassandra, Redis</td>
+</tr>
+<tr class="odd">
+<td>Transaction Handling</td>
+<td>Excellent</td>
+<td>Limited in scope</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="when-to-use-which">When to Use Which</h2>
+<h3 id="use-relational-databases-when">Use Relational Databases When:</h3>
+<ul>
+<li>Data is structured and stable.<br />
+</li>
+<li>Strict transactional consistency is required (e.g., financial systems).<br />
+</li>
+<li>Complex queries and relationships are common.</li>
+</ul>
+<h3 id="use-nosql-databases-when">Use NoSQL Databases When:</h3>
+<ul>
+<li>Scalability and speed are priorities.<br />
+</li>
+<li>Data is unstructured or evolving rapidly.<br />
+</li>
+<li>Building real-time, distributed, or cloud-native applications.</li>
+</ul>
+<hr />
+<h2 id="modern-reality-polyglot-persistence">Modern Reality: Polyglot Persistence</h2>
+<p>Many modern architectures combine both approaches: - Use RDBMS for transactions and strong data integrity.<br />
+- Use NoSQL for large-scale, high-throughput analytics, caching, or flexible data storage.</p>
+<p>This hybrid model offers reliable foundations with scalable, agile performance.</p>

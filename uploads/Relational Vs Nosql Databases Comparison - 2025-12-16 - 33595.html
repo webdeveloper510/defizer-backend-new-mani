@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Relational Vs Nosql Databases Comparison - 2025-12-16 - 33595.temp</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+</head>
+<body>
+<h1 id="advantages-and-disadvantages-of-relational-databases-rdbms-and-nosql-databases">Advantages and Disadvantages of Relational Databases (RDBMS) and NoSQL Databases</h1>
+<hr />
+<h2 id="relational-databases-rdbms">Relational Databases (RDBMS)</h2>
+<p>Examples: MySQL, PostgreSQL, Oracle DB, Microsoft SQL Server<br />
+Data Model: Table-based (rows and columns)<br />
+Schema: Fixed and predefined<br />
+Query Language: SQL (Structured Query Language)</p>
+<p>Relational databases store data in structured tables and are built around relationships between entities.</p>
+<hr />
+<h3 id="advantages-of-relational-databases">Advantages of Relational Databases</h3>
+<ol type="1">
+<li>Data Integrity and Accuracy (ACID Compliance)
+<ul>
+<li>Supports Atomicity, Consistency, Isolation, and Durability — ensuring reliable transactions.<br />
+</li>
+<li>Ideal for financial systems, logistics, health, and ERP systems.</li>
+</ul></li>
+<li>Structured Organization
+<ul>
+<li>Data relationships are well-defined through foreign keys and constraints.<br />
+</li>
+<li>Excellent for structured data with predictable formats.</li>
+</ul></li>
+<li>Powerful Querying with SQL
+<ul>
+<li>SQL is standardized, mature, and supports advanced analytical capabilities.</li>
+</ul></li>
+<li>Strong Security and Access Control
+<ul>
+<li>User permissions, authentication, and roles are integrated natively.</li>
+</ul></li>
+<li>Mature Ecosystem
+<ul>
+<li>Tools, documentation, and community support are extensive.</li>
+</ul></li>
+</ol>
+<hr />
+<h3 id="disadvantages-of-relational-databases">Disadvantages of Relational Databases</h3>
+<ol type="1">
+<li>Scaling Limitations
+<ul>
+<li>Primarily vertically scalable (add more CPU/RAM), not horizontally scalable across servers.</li>
+</ul></li>
+<li>Schema Rigidity
+<ul>
+<li>Structural changes (adding/removing columns) require migrations and downtime.</li>
+</ul></li>
+<li>Performance Degradation with Big or Complex Data
+<ul>
+<li>Complex joins, indexes, and normalization can impact performance at scale.</li>
+</ul></li>
+<li>Not Flexible for Unstructured Data
+<ul>
+<li>Struggles with data like JSON, logs, IoT feeds, images, or documents.</li>
+</ul></li>
+</ol>
+<hr />
+<h2 id="nosql-databases">NoSQL Databases</h2>
+<p>Examples: MongoDB, Cassandra, DynamoDB, Redis, Couchbase, Neo4j<br />
+Data Model: Document, Key-value, Columnar, or Graph-based<br />
+Schema: Flexible or schema-less<br />
+Query Language: Non-SQL or proprietary</p>
+<p>NoSQL databases are designed for scalability, flexibility, and speed, particularly for large volumes of unstructured or distributed data.</p>
+<hr />
+<h3 id="advantages-of-nosql-databases">Advantages of NoSQL Databases</h3>
+<ol type="1">
+<li>Horizontal Scalability
+<ul>
+<li>Easily scales across multiple servers and nodes (cloud-ready architecture).<br />
+</li>
+<li>Perfect for high-traffic and web-scale applications.</li>
+</ul></li>
+<li>Flexible Schema
+<ul>
+<li>Schema-less structure supports rapid data model evolution.<br />
+</li>
+<li>Great for agile and fast-developing applications.</li>
+</ul></li>
+<li>High-Performance and Speed
+<ul>
+<li>Efficient handling of large-scale reads and writes with minimal latency.</li>
+</ul></li>
+<li>Handles Unstructured and Semi-Structured Data
+<ul>
+<li>Supports diverse formats like JSON, XML, graph, or time-series data.</li>
+</ul></li>
+<li>Built for Distributed Systems
+<ul>
+<li>Resilient and fault-tolerant with replication and partitioning built in.</li>
+</ul></li>
+</ol>
+<hr />
+<h3 id="disadvantages-of-nosql-databases">Disadvantages of NoSQL Databases</h3>
+<ol type="1">
+<li>Eventual Consistency (BASE Model)
+<ul>
+<li>Prioritizes availability and partition tolerance, but consistency may be delayed.</li>
+</ul></li>
+<li>No Universal Query Standard
+<ul>
+<li>Each system uses unique APIs or languages (learning curve for developers).</li>
+</ul></li>
+<li>Limited Support for Complex Relationships
+<ul>
+<li>Complex joins and multi-table relationships are not as efficient or built-in.</li>
+</ul></li>
+<li>Potential for Data Duplication
+<ul>
+<li>Denormalization can lead to redundancy and maintenance challenges.</li>
+</ul></li>
+<li>Younger Ecosystem
+<ul>
+<li>Fewer universal administrative tools compared to RDBMS.</li>
+</ul></li>
+</ol>
+<hr />
+<h2 id="comparison-summary">Comparison Summary</h2>
+<table>
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 55%" />
+<col style="width: 29%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Aspect</th>
+<th>Relational Database (RDBMS)</th>
+<th>NoSQL Database</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Data Model</td>
+<td>Table-based (Structured)</td>
+<td>Document, Key-value, Graph, or Columnar</td>
+</tr>
+<tr class="even">
+<td>Schema</td>
+<td>Fixed and predefined</td>
+<td>Dynamic or schema-less</td>
+</tr>
+<tr class="odd">
+<td>Scalability</td>
+<td>Vertical (scale up)</td>
+<td>Horizontal (scale out)</td>
+</tr>
+<tr class="even">
+<td>Consistency Model</td>
+<td>Strong (ACID)</td>
+<td>Eventual (BASE)</td>
+</tr>
+<tr class="odd">
+<td>Data Type</td>
+<td>Structured</td>
+<td>Unstructured / Semi-structured</td>
+</tr>
+<tr class="even">
+<td>Performance</td>
+<td>Excellent for structured data</td>
+<td>Excellent for distributed data</td>
+</tr>
+<tr class="odd">
+<td>Query Language</td>
+<td>SQL (standardized)</td>
+<td>Custom APIs / JSON-based</td>
+</tr>
+<tr class="even">
+<td>Best Use Cases</td>
+<td>Financial systems, ERP, accounting</td>
+<td>IoT, analytics, social networks, e-commerce</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="when-to-use-each">When to Use Each</h2>
+<p>Use Relational Databases when:<br />
+- High consistency and accuracy are critical (e.g., banking, payroll).<br />
+- Your data model is structured and stable.<br />
+- Complex relationships and queries are needed.</p>
+<p>Use NoSQL Databases when:<br />
+- You handle massive, evolving, or diverse data.<br />
+- You need scalability and performance across global regions.<br />
+- Schema changes frequently and speed of development matters.</p>
+<p>Modern Best Practice:<br />
+Adopt a hybrid approach (polyglot persistence) — using:<br />
+- RDBMS for structured, critical transactions.<br />
+- NoSQL for fast scalability, analytics, and unstructured data.</p>
+</body>
+</html>

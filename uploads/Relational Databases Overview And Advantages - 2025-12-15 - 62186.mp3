@@ -1,0 +1,127 @@
+Media placeholder file.
+
+Content metadata:
+# Relational Databases (RDBMS)
+Examples: MySQL, PostgreSQL, Oracle, SQL Server  
+
+Relational databases store data in structured tables (rows and columns) based on a predefined schema, with relationships enforced through keys (primary/foreign). Data is accessed through SQL (Structured Query Language).
+
+---
+
+## Advantages of Relational Databases
+
+1. High Data Integrity and Consistency (ACID Compliance)  
+   - Guarantees Atomicity, Consistency, Isolation, Durability—essential for applications where accuracy is critical (e.g., finance, healthcare).
+
+2. Clear, Structured Schema  
+   - Well-defined data models make queries, validation, and maintenance more predictable.
+
+3. Powerful Query Capability (SQL)  
+   - SQL offers a consistent, declarative language for complex queries, filtering, and data joins.
+
+4. Data Relationships Explicitly Defined  
+   - Excellent for modeling interdependent data (e.g., customers, orders, products).
+
+5. Mature Ecosystem and Proven Stability  
+   - RDBMS systems are widely used, well-documented, and come with rich tooling and community support.
+
+---
+
+## Disadvantages of Relational Databases
+
+1. Limited Scalability  
+   - Mostly supports vertical scaling (upgrading one server) rather than horizontal scaling (adding more servers).
+
+2. Rigid Schema  
+   - Data structure must be predefined—schema modifications can be slow and require downtime or migrations.
+
+3. Performance Bottlenecks at Scale  
+   - Complex joins and transactions may slow down large workloads.
+
+4. Less Suitable for Unstructured or Semi-Structured Data  
+   - Not ideal for dynamic or heterogeneous data formats (like JSON documents or logs).
+
+---
+
+# NoSQL Databases
+Examples: MongoDB, Cassandra, DynamoDB, Redis, Couchbase, Neo4j  
+
+NoSQL databases are non-tabular and store data in formats such as documents, key-value pairs, graphs, or wide-column stores. Designed for flexibility, scalability, and speed in distributed environments.
+
+---
+
+## Advantages of NoSQL Databases
+
+1. Flexible Schema (Schema-less Design)  
+   - You can easily change data structures without schema migrations—ideal for fast-evolving projects.
+
+2. Horizontal Scalability (Distributed Design)  
+   - Data can be spread across multiple servers—perfect for large-scale, high-volume applications.
+
+3. High Performance and Availability  
+   - Many NoSQL databases offer built-in replication and sharding, ensuring fast data access and resilience.
+
+4. Great for Unstructured and Semi-Structured Data  
+   - Handles diverse formats (JSON, XML, etc.) smoothly.
+
+5. Optimized for Big Data and Real-Time Use Cases  
+   - Designed for fast reads/writes at scale—useful for IoT, social media, or analytics applications.
+
+---
+
+## Disadvantages of NoSQL Databases
+
+1. Eventual Consistency (BASE Model)  
+   - Often prioritize performance and scalability over strict data consistency, unlike ACID systems.
+
+2. Limited Query Capabilities  
+   - Complex joins and aggregations are harder to perform; may need additional processing layers.
+
+3. Data Duplication and Redundancy  
+   - Denormalization improves performance but increases storage needs and potential inconsistency.
+
+4. No Universal Standards or Query Language  
+   - Each NoSQL database has its own APIs and query formats; less standardization than SQL.
+
+5. Less Mature Ecosystem  
+   - While growing fast, NoSQL still lags behind RDBMS in terms of tooling, documentation, and expertise.
+
+---
+
+# Comparison Table
+
+| Feature | Relational Databases (RDBMS) | NoSQL Databases |
+|----------|-------------------------------|-----------------|
+| Data Structure | Tabular (tables, rows, columns) | Flexible (document, key-value, graph, column) |
+| Schema | Fixed and predefined | Dynamic or schema-less |
+| Query Language | SQL (standardized) | Varies by system (no standard) |
+| Consistency Model | Strong consistency (ACID) | Eventual consistency (BASE) |
+| Scalability | Vertical (scale-up) | Horizontal (scale-out) |
+| Performance | Best for complex joins and consistent transactions | Best for massive reads/writes at scale |
+| Data Format | Structured only | Structured, semi-structured, or unstructured |
+| Use Case Examples | Financial systems, ERP, CRM | IoT, social media, Big Data, real-time apps |
+
+---
+
+# When to Use Each
+
+## Use Relational Databases When:
+- Data consistency and integrity are critical.
+- Relationships across entities are complex.
+- Schema changes are infrequent.
+- Example systems: Banking, payroll, ERP, ticketing.
+
+## Use NoSQL Databases When:
+- You handle large-scale, rapidly changing, or unstructured data.
+- Scalability and performance are higher priorities than strict consistency.
+- Schema flexibility is required for fast iteration.
+- Example systems: IoT applications, social networks, analytics dashboards.
+
+---
+
+# Final Takeaway
+- RDBMS = Best for structure, accuracy, and data integrity.  
+- NoSQL = Best for speed, scalability, and flexibility.  
+- In modern architectures, companies often use both:  
+  - RDBMS for stable, transactional data.  
+  - NoSQL for dynamic, high-speed data workloads.
