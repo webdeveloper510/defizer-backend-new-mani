@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Sign In – Beilis Module™ SaaS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --accent: #FF7300;
+      --dark: #181A1C;   /* For headings, buttons, borders */
+      --faint: #8C98B6;
+      --border: #E5E7EB;
+      --field-bg: #F5F7FA;
+      --error-bg: #FF730014;
+      --error: #FF7300;
+    }
+    body {
+      font-family: 'Montserrat', Arial, sans-serif;
+      background: #fff;
+      color: var(--dark);
+      margin: 0; min-height: 100vh;
+      display: flex; flex-direction: column;
+    }
+    .container {
+      max-width: 420px; margin: 70px auto 0 auto;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 6px 32px #181A1C12;
+      border: 1.5px solid var(--border);
+      padding: 44px 34px 36px 34px;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    .logo img {height: 52px; margin-bottom: 30px;}
+    h2 {
+      font-size: 2em; color: var(--dark); font-weight: 800;
+      margin: 0 0 24px 0; letter-spacing: -1px;
+      text-align: center;
+    }
+    form {
+      width: 100%; display: flex; flex-direction: column; gap: 18px;
+    }
+    input[type="email"], input[type="password"] {
+      background: var(--field-bg);
+      border: 1.5px solid var(--border);
+      color: var(--dark);
+      border-radius: 10px;
+      font-size: 1.09em;
+      padding: 12px 16px;
+      margin-bottom: 2px;
+      outline: none;
+      transition: border .18s;
+    }
+    input[type="email"]:focus, input[type="password"]:focus {
+      border-color: var(--dark);
+      background: #fff;
+    }
+    .btn-primary {
+      background: var(--dark);
+      color: #fff;
+      border: none;
+      border-radius: 30px;
+      font-size: 1.08em;
+      font-weight: 700;
+      padding: 13px 0;
+      box-shadow: 0 3px 14px #181A1C11;
+      cursor: pointer;
+      transition: background .18s, color .18s;
+      margin-top: 6px;
+    }
+    .btn-primary:hover { background: var(--accent); color: #fff; }
+    .link {
+      margin-top: 22px; color: var(--faint); font-size: 1em; text-align: center;
+    }
+    .link a {
+      color: var(--accent); font-weight: 600; text-decoration: none; margin-left: 2px;
+      transition: color .2s;
+    }
+    .link a:hover { color: var(--dark);}
+    .error-message {
+      background: var(--error-bg);
+      color: var(--error);
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 0.98em;
+      margin-bottom: -10px;
+      text-align: center;
+      display: none;
+    }
+    .forgot-pw {
+      margin-top: -7px; text-align: right; width: 100%;
+      font-size: 0.98em;
+    }
+    .forgot-pw a {
+      color: var(--dark);
+      text-decoration: none;
+      font-weight: 600;
+      transition: color .2s;
+    }
+    .forgot-pw a:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    @media (max-width: 600px) {
+      .container { max-width: 97vw; padding: 30px 3vw; }
+      .logo img { height: 44px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <img src="https://svgshare.com/i/13Tp.svg" alt="Beilis SaaS Logo"/>
+    </div>
+    <h2>Sign in to your account</h2>
+    <div id="errorMsg" class="error-message"></div>
+    <form id="loginForm" autocomplete="off" method="POST" action="#">
+      <input type="email" name="email" placeholder="Email address" required autocomplete="username"/>
+      <input type="password" name="password" placeholder="Password" required autocomplete="current-password"/>
+      <div class="forgot-pw">
+        <a href="#">Forgot password?</a>
+      </div>
+      <button class="btn-primary" type="submit">Sign In</button>
+    </form>
+    <div class="link">
+      Don’t have an account?
+      <a href="signup.html">Sign Up</a>
+    </div>
+  </div>
+  <script>
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var email = this.email.value.trim();
+  var pw = this.password.value;
+  var errorDiv = document.getElementById('errorMsg');
+  errorDiv.style.display = 'none';
+  errorDiv.innerText = '';
+
+  // Basic validation
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errorDiv.innerText = 'Please enter a valid email address.'; errorDiv.style.display = 'block'; return;
+  }
+  if (!pw) {
+    errorDiv.innerText = 'Password cannot be empty.'; errorDiv.style.display = 'block'; return;
+  }
+
+  // Send login data to backend!
+  try {
+    const res = await fetch('http://localhost:3000/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pw })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      // Save JWT to localStorage for future authenticated requests
+      localStorage.setItem('authToken', data.token);
+
+      // --- Clear any old chat data when logging in ---
+      localStorage.removeItem('chatHistory');
+      localStorage.removeItem('sessionId');
+
+      // Redirect to chat.html after successful login
+      window.location = 'chat.html';
+    } else {
+      errorDiv.innerText = data.error || 'Login failed.';
+      errorDiv.style.display = 'block';
+    }
+  } catch (err) {
+    errorDiv.innerText = 'Network error. Try again.';
+    errorDiv.style.display = 'block';
+  }
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relational Vs NoSQL Databases Comparison</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        section {
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        ul {
+            list-style-type: disc;
+            margin-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Relational Vs NoSQL Databases Comparison</h1>
+        <p><em>Document Date: 2025-12-19</em></p>
+    </header>
+    <article>
+        <section>
+            <h2>Understanding Databases</h2>
+            <p>A database is a systematic collection of data that supports the storage, processing, and retrieval of data. Databases are essential for managing and organizing large amounts of information in various industries.</p>
+            <h3>Key Features of Databases:</h3>
+            <ul>
+                <li>Data Storage: Efficiently stores large volumes of data in an organized manner.</li>
+                <li>Data Retrieval: Provides mechanisms to query and retrieve data quickly.</li>
+                <li>Data Management: Facilitates adding, updating, and deleting records.</li>
+                <li>Data Integrity: Ensures data accuracy and consistency.</li>
+                <li>Concurrent Access: Supports multiple users accessing data simultaneously.</li>
+                <li>Security: Protects data from unauthorized access and threats.</li>
+                <li>Backup and Recovery: Offers mechanisms for data recovery in case of failure.</li>
+            </ul>
+        </section>
+        <section>
+            <h2>Relational Databases vs. NoSQL Databases</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Criteria</th>
+                        <th>Relational Databases</th>
+                        <th>NoSQL Databases</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Data Model</td>
+                        <td>Tabular with predefined tables</td>
+                        <td>Flexible, includes document, key-value, graph</td>
+                    </tr>
+                    <tr>
+                        <td>Schema</td>
+                        <td>Fixed schema</td>
+                        <td>Dynamic schema, adapt to changes easily</td>
+                    </tr>
+                    <tr>
+                        <td>Scaling</td>
+                        <td>Vertical scalability</td>
+                        <td>Horizontal scalability</td>
+                    </tr>
+                    <tr>
+                        <td>Query Language</td>
+                        <td>SQL (Structured Query Language)</td>
+                        <td>Various (e.g., JSON, CQL)</td>
+                    </tr>
+                    <tr>
+                        <td>Consistency</td>
+                        <td>Strong consistency (ACID compliance)</td>
+                        <td>Eventual consistency, with some systems offering strong consistency</td>
+                    </tr>
+                    <tr>
+                        <td>Use Cases</td>
+                        <td>Complex queries, transactional systems</td>
+                        <td>Big data, unstructured data, real-time analytics</td>
+                    </tr>
+                    <tr>
+                        <td>Examples</td>
+                        <td>MySQL, PostgreSQL, Oracle</td>
+                        <td>MongoDB, Cassandra, Redis</td>
+                    </tr>
+                </tbody>
+            </table>
+            <h3>Advantages and Disadvantages</h3>
+            <h4>Relational Databases:</h4>
+            <ul>
+                <li><strong>Advantages:</strong>
+                    <ul>
+                        <li>ACID Properties: Guarantees transaction safety and integrity.</li>
+                        <li>Complex Queries: Suitable for sophisticated queries and joins.</li>
+                        <li>Data Integrity: Enforces strict data integrity.</li>
+                    </ul>
+                </li>
+                <li><strong>Disadvantages:</strong>
+                    <ul>
+                        <li>Scalability Issues: Primarily scalable in hardware, which can be costly.</li>
+                        <li>Schema Rigidity: Difficult to modify schema without downtime.</li>
+                        <li>Performance Limitations: Can face performance challenges with large datasets.</li>
+                    </ul>
+                </li>
+            </ul>
+            <h4>NoSQL Databases:</h4>
+            <ul>
+                <li><strong>Advantages:</strong>
+                    <ul>
+                        <li>Scalability: Easily scalable across distributed systems.</li>
+                        <li>Schema Flexibility: Adaptable to evolving data models.</li>
+                        <li>Performance: Optimized for high-speed reads and writes.</li>
+                    </ul>
+                </li>
+                <li><strong>Disadvantages:</strong>
+                    <ul>
+                        <li>Consistency Trade-offs: Often sacrifices consistency for availability and partition tolerance.</li>
+                        <li>Complex Transactions: Limited support for multi-document transactions.</li>
+                        <li>Learning Curve: Requires understanding different data models and query languages.</li>
+                    </ul>
+                </li>
+            </ul>
+        </section>
+    </article>
+</body>
+</html>

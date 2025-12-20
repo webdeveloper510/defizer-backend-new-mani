@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Defizer™ SaaS – Quantum Cognition AI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="description" content="Defizer – The only SaaS AI platform powered by Quantum Cognition™. Instantly solve business, legal, and compliance challenges.">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --accent: #FF7300;
+      --blue: #278AFF;
+      --dark: #181A1C;
+      --light-bg: #FAFBFC;
+      --card-bg: #fff;
+      --shadow: 0 3px 14px #0000000d;
+      --shadow-lg: 0 6px 32px #00000014;
+      --border: #E5E7EB;
+      --faint: #8C98B6;
+    }
+    body {
+      background: #fff;
+      color: var(--dark);
+      font-family: 'Montserrat', Arial, sans-serif;
+      margin: 0; min-height: 100vh;
+      box-sizing: border-box;
+      letter-spacing: -0.01em;
+    }
+    .container {max-width:1200px;margin:0 auto;}
+    header {
+      display:flex;justify-content:space-between;align-items:center;
+      padding:32px 6vw 18px 6vw; background: #fff;
+      border-bottom: 1.5px solid var(--border);
+    }
+    .logo img {height:52px;}
+    nav { display: flex; align-items: center; }
+    nav a {
+      color: var(--dark);
+      text-decoration: none;
+      margin: 0 18px;
+      font-weight: 700;
+      font-size: 1.07em;
+      transition: color .18s, border-bottom .15s;
+      position: relative;
+      padding-bottom: 2px;
+    }
+    nav a:hover { color: var(--blue); }
+    nav .cta-btn {
+      border-radius: 30px;
+      font-weight:700;
+      font-size:1.08em;
+      cursor:pointer;
+      padding:13px 32px;
+      margin-left: 10px;
+      box-shadow: var(--shadow);
+      display:inline-block; text-align:center; text-decoration:none;
+      border: none;
+      transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+    }
+    nav .primary { background: var(--accent); color:#fff; }
+    nav .primary:hover { background: #d45e00; }
+    nav .secondary { background: var(--blue); color:#fff; }
+    nav .secondary:hover { background: #1d6fd3; }
+    nav .accent-link { color: var(--accent); margin-left:10px; }
+    nav .accent-link:hover { text-decoration: underline; }
+    @media(max-width:900px) {
+      header { flex-direction:column; gap:10px 0; padding: 28px 2vw 15px 2vw; }
+      nav { flex-wrap:wrap; justify-content:center; }
+      .container {padding-left:2vw; padding-right:2vw;}
+    }
+    .hero {
+      text-align:center; padding:60px 6vw 40px 6vw; background: #fff;
+    }
+    .hero h1 {
+      font-size:2.7em;font-weight:800;letter-spacing:-2px;
+      color: var(--dark);
+      text-shadow: none;
+      margin-bottom: 0;
+    }
+    .hero .sub {
+      font-size:1.4em; font-weight:600;
+      margin: 18px auto 15px auto; max-width:600px; color: #333;
+    }
+    .impact-ticker {
+      margin:26px auto 0 auto; max-width:420px;
+      background: var(--light-bg);
+      border-radius:14px; padding:14px 8px;
+      font-size:1.19em; font-weight:600;
+      box-shadow: var(--shadow);
+      color: var(--accent);
+    }
+    .impact-ticker small {
+      display: block;
+      font-size: 0.92em;
+      color: #666;
+      margin-top: 2px;
+    }
+    .hero-cta-row {
+      margin:34px 0 0 0; display: flex; gap: 20px; justify-content: center;
+    }
+    .hero-cta-row .cta-btn {
+      font-size: 1.07em;
+      min-width: 164px;
+      box-shadow: var(--shadow-lg);
+      border-radius: 30px;
+      font-weight: 700;
+      padding: 14px 34px;
+      border: none;
+      display: inline-block;
+      transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+      text-decoration: none;
+      text-align: center;
+      margin: 0;
+    }
+    .hero-cta-row .primary { background: var(--accent); color: #fff; }
+    .hero-cta-row .primary:hover { background: #d45e00; }
+    .hero-cta-row .secondary { background: var(--blue); color: #fff; }
+    .hero-cta-row .secondary:hover { background: #1d6fd3; }
+    @media(max-width:800px) {
+      .features-list, .testimonials {flex-direction:column;gap:30px;}
+      .container, .faq, .pricing-table {padding-left:7vw;padding-right:7vw;}
+      header {flex-direction:column;gap:12px 0;}
+      .hero-cta-row { flex-direction:column; gap: 18px; }
+    }
+    .social-proof {
+      text-align:center; margin:48px 0 0 0; opacity:0.95;
+      background: none;
+    }
+    .social-proof img {height:34px; margin:0 20px; opacity:.78;}
+    .section-title {
+      color: var(--dark);
+      text-align:center;
+      font-size:2em;
+      font-weight:800;
+      margin:68px 0 18px 0; letter-spacing:-1px;
+    }
+    .features-list {
+      display:flex;flex-wrap:wrap;justify-content:center;gap:36px 30px;max-width:1000px;margin:0 auto 0 auto;
+    }
+    .feature-card {
+      background: var(--card-bg);
+      border-radius:16px;
+      box-shadow: var(--shadow);
+      padding:28px 30px;
+      min-width:230px;max-width:340px;flex:1 1 260px;
+      border: 1.2px solid var(--border);
+      font-size: 1.08em;
+      color: #222;
+      transition: box-shadow .17s;
+    }
+    .feature-card h3 {
+      color: var(--blue); margin:0 0 10px 0;
+      font-size:1.13em; font-weight:700;
+    }
+    .pricing-table {
+      max-width:820px;margin:0 auto 0 auto;display:flex;flex-wrap:wrap;justify-content:center;gap:30px;
+    }
+    .price-card {
+      background: var(--card-bg);
+      border-radius:14px;
+      box-shadow: var(--shadow);
+      flex:1 1 170px;min-width:180px;max-width:240px;
+      padding:26px 22px;text-align:center;
+      border: 1.1px solid var(--border);
+    }
+    .price-card h4{color:var(--blue);font-size:1.13em;}
+    .price-amount {font-size:2.2em;font-weight:700;margin:14px 0 0 0; color: var(--dark);}
+    .price-desc {font-size:1.06em;margin:10px 0 18px 0; color:#434343;}
+    .price-btn {
+      background: var(--accent);
+      color:#fff;
+      padding:10px 25px;
+      border-radius:18px;
+      border:none;
+      font-weight:600;
+      cursor:pointer;
+      margin-top:12px;
+      text-decoration:none;
+      display:inline-block;
+      transition: background .15s;
+      box-shadow: var(--shadow);
+    }
+    .price-btn:hover { background: #d45e00; }
+    .testimonials {
+      display:flex;flex-wrap:wrap;justify-content:center;gap:32px 24px;max-width:900px;margin:0 auto 0 auto;
+    }
+    .testimonial {
+      background:#f6f7fa;
+      border-radius:12px;
+      padding:18px 20px;flex:1 1 270px;max-width:350px;
+      box-shadow: var(--shadow);
+      color: #20242B;
+      font-size:1.1em;
+      border: 1px solid #e9ebf0;
+    }
+    .faq {max-width:800px;margin:0 auto;}
+    .faq-item {margin-bottom:24px;}
+    .faq-q {font-weight:700;color:var(--blue);margin-bottom:2px;}
+    .faq-a {margin-bottom:3px;}
+    footer {
+      text-align:center;
+      background:#f6f7fa;
+      padding:40px 0 24px 0;
+      margin-top:70px;
+      color: var(--faint);
+      font-size:1.07em;
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: var(--blue); text-decoration: none; }
+  </style>
+</head>
+<body>
+<header class="container">
+  <div class="logo"><img alt="Defizer SaaS Logo" src="https://svgshare.com/i/13Tp.svg"/></div>
+  <nav>
+    <a href="#features">Features</a>
+    <a href="#how">How It Works</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#faq">FAQ</a>
+    <a href="#contact">Contact</a>
+    <a class="cta-btn primary" href="chat.html">Get Started</a>
+    <a class="cta-btn secondary" href="signup.html">Sign Up</a>
+    <a class="accent-link" href="login.html">Sign In</a>
+  </nav>
+</header>
+<section class="hero container">
+  <h1>AI as a Service.<br/>Quantum as Your Edge.</h1>
+  <div class="sub">
+    <b>Defizer™</b> — The only SaaS platform powered by Quantum Cognition™.<br/>
+    Instantly solve your business, legal, and compliance challenges—faster, smarter, deeper than any legacy AI.
+  </div>
+  <div class="impact-ticker">
+    <span id="live-impact" style="color:#FF7300;font-size:1.13em;"></span>
+    <small>(Verified, updated in real time)</small>
+  </div>
+  <div class="hero-cta-row">
+    <a class="cta-btn primary" href="chat.html">Start Free Trial</a>
+    <a class="cta-btn secondary" href="chat.html">See It In Action</a>
+  </div>
+</section>
+<section class="social-proof container">
+  <div style="margin-bottom:10px;font-size:1.13em;color:#434343;">Trusted by industry leaders:</div>
+  <img alt="WHO" src="https://upload.wikimedia.org/wikipedia/commons/a/a7/Logo_UN_Health_Agency_WHO.svg"/>
+  <img alt="Financial Times" src="https://upload.wikimedia.org/wikipedia/commons/5/5a/Financial_Times_corporate_logo.svg"/>
+  <img alt="FDA" src="https://upload.wikimedia.org/wikipedia/commons/4/44/Logo_FDA.svg"/>
+  <img alt="UNDP" src="https://upload.wikimedia.org/wikipedia/commons/6/6e/United_Nations_Development_Programme_Logo.svg"/>
+  <img alt="Microsoft" src="https://upload.wikimedia.org/wikipedia/commons/e/e6/Microsoft_logo_%282012%29.svg"/>
+</section>
+<h2 class="section-title" id="how">How It Works</h2>
+<section class="features-list container">
+  <div class="feature-card"><h3>1. Ask Anything</h3>Upload docs, type a question, or call our API for instant business, legal, or regulatory answers.</div>
+  <div class="feature-card"><h3>2. Quantum Cognition™ Analyzes</h3>Proprietary engine reviews risk, compliance, market and legal context in real time—no human delay.</div>
+  <div class="feature-card"><h3>3. Actionable Results</h3>Get detailed, audit-ready recommendations—optimized for real-world decision-making.</div>
+</section>
+<h2 class="section-title" id="features">Platform Features</h2>
+<section class="features-list container">
+  <div class="feature-card"><h3>Quantum Cognition™ Engine</h3> True multi-dimensional reasoning—solves what others can't.</div>
+  <div class="feature-card"><h3>Proprietary Risk &amp; Compliance Layer</h3> Detects legal and business risks invisible to traditional AI.</div>
+  <div class="feature-card"><h3>Enterprise Security</h3> All data encrypted at rest and in transit; no data sharing, ever.</div>
+  <div class="feature-card"><h3>Unlimited Users &amp; API</h3> Integrate with any workflow, scale as your business grows.</div>
+  <div class="feature-card"><h3>Self-Evolving AI</h3> Each interaction makes Defizer smarter, faster, and more adaptive.</div>
+  <div class="feature-card"><h3>White-Label &amp; Customization</h3> Brand and adapt the platform for your company or clients.</div>
+</section>
+<h2 class="section-title" id="pricing">Pricing</h2>
+<section class="pricing-table">
+  <div class="price-card"><h4>Starter</h4><div class="price-amount">Free</div><div class="price-desc">3 queries/month, basic support</div><a class="price-btn" href="chat.html">Start Free</a></div>
+  <div class="price-card"><h4>Pro</h4><div class="price-amount">$129<span style="font-size:.5em;">/mo</span></div><div class="price-desc">Unlimited queries, reports, integrations</div><a class="price-btn" href="chat.html">Upgrade</a></div>
+  <div class="price-card"><h4>Business</h4><div class="price-amount">$499<span style="font-size:.5em;">/mo</span></div><div class="price-desc">API access, custom compliance, SLA</div><a class="price-btn" href="chat.html">Contact Sales</a></div>
+  <div class="price-card"><h4>Enterprise</h4><div class="price-amount">Custom</div><div class="price-desc">On-prem, white-label, advanced integration</div><a class="price-btn" href="chat.html">Request Quote</a></div>
+</section>
+<h2 class="section-title">Customer Stories</h2>
+<section class="testimonials">
+  <div class="testimonial">“We reduced contract risk by 90%—no other AI caught what Defizer found.”<br/><b>— General Counsel, Fortune 500</b></div>
+  <div class="testimonial">“Defizer turned hours of research into seconds.”<br/><b>— Compliance Officer</b></div>
+  <div class="testimonial">“The only AI that keeps up with the complexity of my business.”<br/><b>— Tech Founder</b></div>
+</section>
+<h2 class="section-title" id="faq">Frequently Asked Questions</h2>
+<section class="faq">
+  <div class="faq-item"><div class="faq-q">What makes Defizer different from other AI SaaS?</div><div class="faq-a">Defizer is the only platform with proprietary Quantum Cognition™, giving you risk detection, compliance, and insight beyond any legacy AI—plus enterprise security and self-evolving intelligence.</div></div>
+  <div class="faq-item"><div class="faq-q">Is my data secure?</div><div class="faq-a">Absolutely. Your data is encrypted at rest and in transit. We never share, train on, or sell your information.</div></div>
+  <div class="faq-item"><div class="faq-q">Can I integrate via API?</div><div class="faq-a">Yes! API and webhooks are included for Business &amp; Enterprise clients. Get in touch for docs and sandbox access.</div></div>
+  <div class="faq-item"><div class="faq-q">How do I get started?</div><div class="faq-a">Click “Start Free” or see it in action—no credit card required for your trial.</div></div>
+</section>
+<h2 class="section-title" id="contact">Contact &amp; Demo</h2>
+<section class="faq">
+  <div class="faq-q">Want a custom plan, demo, or to partner with Defizer?</div>
+  <div class="faq-a">Email: <a href="mailto:sales@defizerdevelopment.com">sales@defizerdevelopment.com</a></div>
+</section>
+<footer>
+  © 2025 Defizer Development Inc. | Quantum Cognition™ &amp; Defizer™ are trademarks of Defizer Development Inc.<br/>
+  Privacy | Terms | Security | <a href="https://linkedin.com/">LinkedIn</a>
+</footer>
+<script>
+  // Impact ticker (live counter)
+  let base=28450000,impactEl=document.getElementById('live-impact');
+  if(impactEl){
+    function updateImpact(){
+      base+=Math.floor(Math.random()*13);
+      impactEl.innerHTML='$'+base.toLocaleString()+'+ in business risks & legal losses prevented';
+    }
+    updateImpact();
+    setInterval(updateImpact,2300);
+  }
+</script>
+</body>
+</html>

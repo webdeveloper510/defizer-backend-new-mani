@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Beilis Chat with Operator Integration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="chat.css" />
+</head>
+<body>
+  <button id="share-chat-btn" class="share-btn-topright" title="Share this chat">
+    <svg width="22" height="22" viewBox="0 0 20 20" fill="none" style="vertical-align:middle;">
+      <path d="M15 8V5a3 3 0 0 0-6 0v3M5 10V5a5 5 0 0 1 10 0v5a5 5 0 1 1-2.99-4.57" stroke="currentColor" stroke-width="1.7" fill="none"/>
+    </svg>
+    <span style="margin-left:8px;">Share</span>
+  </button>
+  <div class="sidebar" id="sidebar" role="navigation" aria-label="Chat Sidebar">
+    <div class="sidebar-header">
+      <button id="sidebar-toggle-btn" class="sidebar-toggle-btn" aria-label="Hide sidebar" title="Hide sidebar">☰</button>
+      <img src="defizer_logo_logo-dark.png" class="sidebar-logo logo-dark" alt="Defizer Logo" />
+      <img src="defizer_logo_logo-dark.png" class="sidebar-logo logo-light" alt="Defizer Logo" />
+      <div class="sidebar-spacer"></div>
+      <label class="theme-switch" for="theme-toggle">
+        <input type="checkbox" id="theme-toggle" aria-label="Toggle light and dark mode" />
+        <span class="theme-switch-label"></span>
+        <span class="theme-switch-text" id="theme-switch-text">
+          <span class="mode-light">Light</span>
+          <span class="mode-dark">Dark</span>
+        </span>
+      </label>  
+    </div>
+
+    <!-- Fixed Top Section -->
+    <div class="sidebar-top">
+      <!-- New Chat Button -->
+      <button class="new-chat-button" id="new-chat-btn" aria-label="Start New Chat" type="button">
+        <span class="sidebar-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" style="vertical-align:middle;">
+            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19 7h1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h11.5M7 14h6m-6 3h6m0-10h.5m-.5 3h.5M7 7h3v3H7V7Z"/>
+          </svg>
+        </span>
+        New chat
+      </button>
+
+      <!-- Search Chat Button -->
+      <button class="sidebar-item" id="search-chats-btn" type="button">
+        <span class="sidebar-icon" aria-hidden="true">
+          <svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              fill-rule="evenodd"
+              clip-rule="evenodd"
+              d="M10 6.5C10 8.433 8.433 10 6.5 10C4.567 10 3 8.433 3 6.5C3 4.567 4.567 3 6.5 3C8.433 3 10 4.567 10 6.5ZM9.30884 10.0159C8.53901 10.6318 7.56251 11 6.5 11C4.01472 11 2 8.98528 2 6.5C2 4.01472 4.01472 2 6.5 2C8.98528 2 11 4.01472 11 6.5C11 7.56251 10.6318 8.53901 10.0159 9.30884L12.8536 12.1464C13.0488 12.3417 13.0488 12.6583 12.8536 12.8536C12.6583 13.0488 12.3417 13.0488 12.1464 12.8536L9.30884 10.0159Z"
+              fill="currentColor"
+            />
+          </svg>
+        </span>
+        Search chats
+      </button>
+    </div>
+
+    <!-- Scrollable Content Area -->
+    <div class="sidebar-content">
+
+      <!-- Projects Section -->
+      <div class="projects-section">
+        <div class="projects-header">
+          <span class="projects-title">Projects</span>
+          <button class="projects-toggle-btn" id="projects-toggle-btn" type="button">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none">
+              <path d="M5 7l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        
+        <div class="projects-content" id="projects-content" style="display: none;">
+          <!-- New Project Button -->
+          <button class="sidebar-item project-folder-btn" id="new-project-btn" type="button">
+            <span class="sidebar-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="18" height="18" fill="none">
+                <path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H7l1.25 1.5H16.5A1.5 1.5 0 0 1 18 7v7.5A1.5 1.5 0 0 1 16.5 16h-13A1.5 1.5 0 0 1 2 14.5V5.5Z" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M10 9.5v3m0 0v-3m0 3h-2m2 0h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </span>
+            New project
+          </button>
+          
+          <!-- Projects List -->
+          <div class="projects-list" id="projects-list">
+            <!-- Projects will be dynamically loaded here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- New Project Modal -->
+      <div class="project-modal-overlay" id="project-modal-overlay" style="display: none;">
+        <div class="project-modal">
+          <div class="project-modal-header">
+            <h3>Create New Project</h3>
+            <button class="project-modal-close" id="project-modal-close" type="button">
+              <svg viewBox="0 0 20 20" width="20" height="20" fill="none">
+                <path d="M15 5L5 15M5 5l10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <div class="project-modal-body">
+            <div class="project-form-group">
+              <label for="project-name-input">Project Name</label>
+              <input type="text" id="project-name-input" placeholder="Enter project name..." maxlength="50">
+            </div>
+          </div>
+          <div class="project-modal-footer">
+            <button class="project-modal-cancel" id="project-modal-cancel" type="button">Cancel</button>
+            <button class="project-modal-create" id="project-modal-create" type="button">Create Project</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat History Section with Header -->
+      <div class="chat-history-section">
+        <div class="chat-history-header">
+          <span class="chat-history-title">Chats</span>
+          <button class="delete-all-chats-btn" id="delete-all-chats-btn" type="button" title="Delete all chats">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none">
+              <path d="M3 6h14M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="chat-history" id="chat-history" role="list" aria-label="Chat History"></div>
+      </div>
+    </div> <!-- End of sidebar-content -->
+    <div class="account-menu-wrapper">
+      <div id="accountMenuBtn">
+        <div class="account-avatar" id="userAvatar"></div>
+        <span class="account-full-name" id="userFullName"></span>
+        <svg style="width:18px;height:18px;margin-left:7px;vertical-align:middle;" viewBox="0 0 20 20" fill="none"><path d="M6 8l4 4 4-4" stroke="#bbb" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <div id="accountMenuDropdown" class="account-dropdown" style="
+          display:none;
+          position:absolute;
+          top:40px;
+          right:0;
+          background:#fff;
+          border-radius:15px;
+          box-shadow:0 6px 32px #0002;
+          padding:10px 0 10px 0;
+          min-width:190px;
+          z-index:30;
+          border:1.2px solid #e5e7eb;
+        ">
+        <a href="#" id="upgradeBtn" style="display:flex;align-items:center;gap:8px;padding:10px 22px;color:#222;text-decoration:none;font-weight:500;">
+          <svg width="18" height="18" fill="none" viewBox="0 0 20 20"><path d="M10 2v16M2 10h16" stroke="#ff7300" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Upgrade plan
+        </a>
+        <a href="settings.html" style="display:flex;align-items:center;gap:8px;padding:10px 22px;color:#222;text-decoration:none;font-weight:500;">
+          <svg width="18" height="18" fill="none" viewBox="0 0 20 20"><path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3.07 13A8 8 0 0 1 3 10c0-.34.02-.67.07-1h2.05a6 6 0 0 0 0 2H3.07ZM6.1 15.48c.38-.5.8-.95 1.29-1.31l.82 1.43c-.69-.39-1.42-.68-2.17-.83a7.96 7.96 0 0 1-.81-1.95c.45-.16.91-.28 1.37-.37ZM16.93 7c.05.33.07.66.07 1a8 8 0 0 1-.07 3h-2.05a6 6 0 0 0 0-2h2.05Z" stroke="#222" stroke-width="1.2"/></svg>
+          Settings
+        </a>
+        <a href="#" id="helpBtn" style="display:flex;align-items:center;gap:8px;padding:10px 22px;color:#222;text-decoration:none;font-weight:500;">
+          <svg width="18" height="18" fill="none" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" stroke="#889" stroke-width="1.2"/><circle cx="10" cy="14.5" r="1" fill="#889"/><path d="M10 7.7c.2-.9.7-1.2 1.2-1.4.6-.3 1.3-.2 1.8.3.5.5.6 1.3.2 1.9-.4.6-1 1-1.5 1.5-.4.4-.7.8-.7 1.5" stroke="#889" stroke-width="1.2" stroke-linecap="round"/></svg>
+          Help
+        </a>
+        <hr style="border:0;border-top:1px solid #f3f3f3;margin:8px 0;">
+        <a href="#" id="logout-btn" style="display:flex;align-items:center;gap:8px;padding:10px 22px;color:#ff7300;font-weight:700;text-decoration:none;">
+          <svg width="18" height="18" fill="none" viewBox="0 0 20 20"><path d="M12 16l4-4-4-4M16 12H6" stroke="#ff7300" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Log out
+        </a>
+      </div>
+    </div>
+  </div>
+  <button id="show-sidebar-btn" class="show-sidebar-btn" aria-label="Show sidebar" title="Show sidebar" style="display:none;">☰</button>
+  <div class="main-chat" id="main-chat" role="main">
+    <!-- Project View (hidden by default) -->
+    <div class="project-view" id="project-view" style="display: none;">
+      <div class="project-header">
+        <div class="project-title">
+          <svg class="project-folder-icon" viewBox="0 0 20 20" width="20" height="20" fill="none">
+            <path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H7l1.25 1.5H16.5A1.5 1.5 0 0 1 18 7v7.5A1.5 1.5 0 0 1 16.5 16h-13A1.5 1.5 0 0 1 2 14.5V5.5Z" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <h1 id="project-view-title">Project Name</h1>
+        </div>
+        <div class="project-actions">
+          <button class="new-chat-in-project-btn" id="new-chat-in-project-btn">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none">
+              <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            New chat in <span id="project-name-span">Project</span>
+          </button>
+        </div>
+      </div>
+      
+      <div class="project-conversations" id="project-conversations">
+        <!-- Conversations will be loaded here -->
+      </div>
+    </div>
+
+    <!-- Chat View (default) -->
+    <div class="main-chat-inner" id="main-chat-inner">
+      <div class="intro" id="intro">What can I help you with?</div>
+      <div class="tags" id="tag-container">
+        <button class="tag-button" onclick="useTag('Summarize text')">Summarize text</button>
+        <button class="tag-button" onclick="useTag('Surprise me')">Surprise me</button>
+        <button class="tag-button" onclick="useTag('Analyze images')">Analyze images</button>
+        <button class="tag-button" onclick="useTag('Code')">Code</button>
+        <button class="tag-button" onclick="useTag('Help me write')">Help me write</button>
+        <button class="tag-button" onclick="useTag('Get advice')">Get advice</button>
+        <button class="tag-button" onclick="useTag('Brainstorm')">Brainstorm</button>
+        <button class="tag-button" onclick="useTag('Make a plan')">Make a plan</button>
+        <button class="tag-button" onclick="useTag('Analyze data')">Analyze data</button>
+      </div>
+    </div>
+    <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+    
+    <!-- INPUT AREA (now with file bar above the input row) -->
+    <div class="input-area glassy" aria-label="Send message">
+      <div class="file-preview-bar" id="file-preview-container"></div>
+        <div class="input-row">
+          <div class="input-wrapper">
+            <!-- your file icon, textarea, send button, etc -->
+            <label for="file-upload" class="icon-button" title="Upload attachment">📎</label>
+            <input id="file-upload" type="file" multiple aria-label="Upload files" />
+            <textarea id="chat-input" placeholder="Ask anything..." rows="1" aria-label="Chat input"></textarea>
+            <button class="send-button" id="send-btn" type="button" title="Send" aria-label="Send message">
+              <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>
+          <div class="promptara-neon-container">
+            <div class="promptara-label">IQPROMPT<span class="infinity-symbol"></span></div>
+            <div class="patent-pending">PATENT PENDING</div>
+            <div class="promptara-neon-frame" id="promptara-neon-frame">
+              <div id="promptara-suggestion-bar" class="promptara-suggestion-text"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Vendor scripts and main logic (do not inline logic here) -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

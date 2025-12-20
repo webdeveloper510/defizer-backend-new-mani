@@ -1,0 +1,339 @@
+\<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Account Settings – Defizer</title>
+  <link rel="stylesheet" href="chat.css" />
+  <style>
+    .settings-container {
+      max-width: 430px;
+      margin: 64px auto 0 auto;
+      background: #fff;
+      border-radius: 17px;
+      box-shadow: 0 8px 32px #0002;
+      padding: 40px 36px 32px 36px;
+    }
+    .settings-header {
+      font-size: 2em;
+      font-weight: 700;
+      margin-bottom: 20px;
+      text-align: center;
+      color: #2563eb;
+      letter-spacing: -0.5px;
+    }
+    .settings-avatar {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 26px;
+      gap: 9px;
+    }
+    .settings-avatar-preview {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #F7F8FA 60%, #D6E1F5 100%);
+      box-shadow: 0 2px 10px #0001;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2em;
+      color: #278AFF;
+      font-weight: 700;
+      position: relative;
+      overflow: hidden;
+    }
+    .settings-avatar-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .settings-avatar-upload {
+      margin-top: 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .settings-avatar-upload input[type="file"] { display: none; }
+    .settings-avatar-upload label {
+      background: #f3f7ff;
+      color: #2563eb;
+      padding: 7px 20px;
+      border-radius: 8px;
+      font-size: 0.96em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+      margin-bottom: 0;
+      border: 1.2px solid #2563eb22;
+    }
+    .settings-avatar-upload label:hover { background: #2563eb13; }
+    .settings-form label {
+      font-weight: 600;
+      font-size: 1.03em;
+      display: block;
+      margin-bottom: 7px;
+      color: #111a;
+    }
+    .settings-form input[type="text"], .settings-form input[type="email"] {
+      width: 100%;
+      padding: 9px 13px;
+      border-radius: 8px;
+      border: 1.2px solid #ddd;
+      margin-bottom: 16px;
+      font-size: 1em;
+      background: #f7fafd;
+    }
+    .settings-form input[type="email"]:disabled {
+      color: #aaa;
+      background: #f4f4f4;
+      cursor: not-allowed;
+    }
+    .settings-form button {
+      background: #2563eb;
+      color: #fff;
+      padding: 12px 0;
+      border-radius: 8px;
+      width: 100%;
+      border: none;
+      font-size: 1.08em;
+      font-weight: 600;
+      margin-top: 8px;
+      transition: background .16s;
+      cursor: pointer;
+      box-shadow: 0 2px 8px #2563eb22;
+    }
+    .settings-form button[disabled] { opacity: 0.7; cursor: not-allowed; }
+    .settings-form button:hover:not([disabled]) { background: #1e54e3; }
+    .settings-success {
+      color: #228b22;
+      font-weight: 600;
+      margin-top: 18px;
+      text-align: center;
+      display: none;
+    }
+    .settings-error {
+      color: #e23d3d;
+      font-weight: 600;
+      margin-top: 18px;
+      text-align: center;
+      display: none;
+    }
+    .uploading-bar {
+      margin-top: 8px;
+      font-size: 1em;
+      color: #2563eb;
+      text-align: center;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-container">
+    <div class="settings-header">Account Settings</div>
+    <div class="settings-avatar">
+      <div class="settings-avatar-preview" id="avatarPreview">
+        <!-- Initials or photo go here -->
+      </div>
+      <div class="settings-avatar-upload">
+        <input type="file" id="avatarUpload" accept="image/*">
+        <label for="avatarUpload">Change Photo</label>
+        <div class="uploading-bar" id="uploadingBar">Uploading photo…</div>
+      </div>
+    </div>
+    <form class="settings-form" id="settingsForm" autocomplete="off">
+      <label for="firstName">First Name</label>
+      <input type="text" id="firstName" name="firstName" required>
+      <label for="lastName">Last Name</label>
+      <input type="text" id="lastName" name="lastName" required>
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required disabled>
+      <button type="submit">Save Changes</button>
+      <div class="settings-success" id="settingsSuccess">Profile updated!</div>
+      <div class="settings-error" id="settingsError"></div>
+    </form>
+  </div>
+  <script>
+    const token = localStorage.getItem('authToken');
+    const API_BASE = 'http://localhost:3000'; // Change to your prod API if needed
+
+    const avatarPreview = document.getElementById('avatarPreview');
+    const avatarUpload = document.getElementById('avatarUpload');
+    const settingsForm = document.getElementById('settingsForm');
+    const firstNameInput = document.getElementById('firstName');
+    const lastNameInput = document.getElementById('lastName');
+    const emailInput = document.getElementById('email');
+    const successMsg = document.getElementById('settingsSuccess');
+    const errorMsg = document.getElementById('settingsError');
+    const uploadingBar = document.getElementById('uploadingBar');
+    const saveBtn = settingsForm.querySelector('button[type="submit"]');
+    let profilePhotoUrl = null;
+
+    // ----------- Helper: Always fix avatar URLs to use backend -----------
+    function getFullAvatarUrl(url) {
+      if (url && url.startsWith('/')) {
+        return API_BASE + url;
+      }
+      return url;
+    }
+
+    // ----------- Load profile on entry -----------
+    function loadProfile() {
+      fetch(`${API_BASE}/api/profile`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => {
+          firstNameInput.value = data.first_name || '';
+          lastNameInput.value = data.last_name || '';
+          emailInput.value = data.email || '';
+          if (data.profile_photo_url) {
+            let imgUrl = getFullAvatarUrl(data.profile_photo_url);
+            profilePhotoUrl = imgUrl;
+            showAvatarPhoto(imgUrl);
+          } else {
+            showAvatarInitials(data.first_name, data.last_name);
+          }
+        });
+    }
+    function showAvatarPhoto(url) {
+      url = getFullAvatarUrl(url);
+      avatarPreview.innerHTML = `<img src="${url}" alt="Profile Photo">`;
+    }
+    function showAvatarInitials(first, last) {
+      let initials = '';
+      if (first) initials += first[0];
+      if (last) initials += last[0];
+      avatarPreview.textContent = initials.toUpperCase() || '?';
+    }
+
+    // ----------- Instant preview & validation on photo select -----------
+    avatarUpload.addEventListener('change', function() {
+      errorMsg.style.display = 'none';
+      uploadingBar.style.display = 'none';
+      const file = this.files[0];
+      if (file) {
+        if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) {
+          errorMsg.textContent = "Only JPG, PNG, WEBP, or GIF allowed.";
+          errorMsg.style.display = 'block';
+          avatarUpload.value = '';
+          return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+          errorMsg.textContent = "Max file size is 2MB.";
+          errorMsg.style.display = 'block';
+          avatarUpload.value = '';
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = function(e) { showAvatarPhoto(e.target.result); };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // ----------- Save name (and optionally photo) -----------
+    settingsForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      successMsg.style.display = 'none';
+      errorMsg.style.display = 'none';
+      uploadingBar.style.display = 'none';
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+
+      // 1. Update name
+      fetch(`${API_BASE}/api/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          first_name: firstNameInput.value.trim(),
+          last_name: lastNameInput.value.trim()
+        })
+      })
+      .then(res => res.ok ? res.json() : Promise.reject(res))
+      .then(data => {
+        // 2. If photo selected, upload
+        const file = avatarUpload.files[0];
+        if (file) {
+          uploadingBar.textContent = "Uploading photo…";
+          uploadingBar.style.display = 'block';
+          const formData = new FormData();
+          formData.append('profile_photo', file);
+          fetch(`${API_BASE}/api/profile-photo`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+          })
+          .then(r => r.json())
+          .then(photoRes => {
+            uploadingBar.style.display = 'none';
+            if (photoRes.url || photoRes.profile_photo_url) {
+              let imgUrl = getFullAvatarUrl(photoRes.profile_photo_url || photoRes.url);
+              profilePhotoUrl = imgUrl;
+              showAvatarPhoto(imgUrl);
+              broadcastProfileUpdate({
+                first_name: firstNameInput.value.trim(),
+                last_name: lastNameInput.value.trim(),
+                profile_photo_url: imgUrl
+              });
+            }
+            successMsg.textContent = "Profile updated!";
+            successMsg.style.display = 'block';
+            errorMsg.style.display = 'none';
+            saveBtn.disabled = false;
+            saveBtn.textContent = "Save Changes";
+            avatarUpload.value = '';
+          })
+          .catch(() => {
+            uploadingBar.style.display = 'none';
+            successMsg.style.display = 'block';
+            errorMsg.textContent = "Name updated, but photo failed to upload.";
+            errorMsg.style.display = 'block';
+            saveBtn.disabled = false;
+            saveBtn.textContent = "Save Changes";
+          });
+        } else {
+          broadcastProfileUpdate({
+            first_name: firstNameInput.value.trim(),
+            last_name: lastNameInput.value.trim(),
+            profile_photo_url: profilePhotoUrl
+          });
+          successMsg.textContent = "Profile updated!";
+          successMsg.style.display = 'block';
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save Changes";
+        }
+      })
+      .catch(async res => {
+        let errMsg = "Failed to update profile.";
+        try { errMsg = (await res.json()).error || errMsg; } catch {}
+        errorMsg.textContent = errMsg;
+        errorMsg.style.display = 'block';
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save Changes";
+      });
+    });
+
+    // ----------- Broadcast profile update (cross-tab and in-app sync) -----------
+    function broadcastProfileUpdate(data) {
+      try {
+        localStorage.setItem('profileUpdated', JSON.stringify({
+          at: Date.now(),
+          ...data
+        }));
+      } catch (e) {}
+    }
+
+    window.addEventListener('storage', function(e) {
+      if (e.key === 'profileUpdated' && e.newValue) {
+        // For demo: refresh profile UI if needed
+        // (in chat.html/main.js, you can call fetchProfile())
+      }
+    });
+
+    loadProfile();
+  </script>
+</body>
+</html>

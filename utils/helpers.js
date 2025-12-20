@@ -12,10 +12,28 @@ function isPureExportCommand(msg = '') {
 
   const hasExportKeyword = /(export|word|pdf|docx?|excel|file|download|document|doc file|word file|save as)/.test(text);
 
-  // Content / modification intent → then it's NOT pure export
-  const hasContentKeyword = /(what is|who is|explain|write|generate|create|draft|prepare|make|analysis|report|summary|summarize|article|blog|email|letter|proposal|contract|terms and conditions|policy|combine|merge|update|edit|improve|rewrite|continue|add section|add point|add more|describe)/.test(text);
+  // If no export keywords at all, definitely not pure export
+  if (!hasExportKeyword) return false;
 
-  return hasExportKeyword && !hasContentKeyword;
+  // Content / modification intent → then it's NOT pure export
+  const hasContentKeyword = /(what is|who is|explain|write|generate|create|draft|prepare|make|analysis|report|summary|summarize|article|blog|email|letter|proposal|contract|terms and conditions|policy|combine|merge|update|edit|improve|rewrite|continue|add section|add point|add more|describe|change|modify|convert|transform|alter|switch|replace|make it|turn|bullets?|numbered|list|analyze|review|check|read)/.test(text);
+
+  // If it has both export AND content/modification words, it's NOT pure export
+  if (hasContentKeyword) {
+    return false;
+  }
+
+  // Check if it's a standalone export command
+  const standaloneExportPatterns = [
+    /^\s*(download|export|save)\s+(?:it|this|that|the)\s+(?:as|into|in|to)\s+\w+\s*$/i,
+    /^\s*(give me|provide)\s+(?:a|an)?\s*(pdf|word|docx?|excel|xlsx?|csv|tsv)\s*(?:file)?\s*$/i,
+    /^\s*(convert|turn)\s+(?:it|this|that|the)\s+(?:into|to|as)\s+\w+\s*$/i,
+    /^\s*(download|export)\s+(?:our|this)?\s*(?:conversation|chat)\s*$/i,
+  ];
+
+  const isStandaloneExport = standaloneExportPatterns.some(pattern => pattern.test(text));
+  
+  return isStandaloneExport;
 }
 
 function detectExportScope(msg = '') {

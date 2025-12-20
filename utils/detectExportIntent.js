@@ -1,4 +1,3 @@
-
 function detectExportIntent(message = '') {
   if (!message) return { 
     // A. Core Office Formats
@@ -60,25 +59,29 @@ function detectExportIntent(message = '') {
     png: false,
     bmp: false,
     tiff: false,
-        mdb: false,
+    mdb: false,
     accdb: false,
     
     generic: false 
   };
 
   const msg = message.toLowerCase();  
+  
+  // ========== IMPROVED DETECTION PATTERNS ==========
+  
   const pdfType = /\b(pdf|\.pdf)\b/;
   const pdfPhrase = /(in|as|into|to|on|as a|as an)\s+pdf\b/;
   
-  const wordType = /\b(word|docx?|ms\s*word|document|documnet|documnt)\b/;
-  const wordPhrase = /(in|as|into|to|on|as a|as an)\s+(word|docx?|ms\s*word|document)\b/;
-  const docType = /\b(\.doc|doc\s+file)\b/;
-  const docxType = /\b(\.docx|docx\s+file)\b/;
+  // FIXED: More specific patterns for DOC vs DOCX
+const docType = /\b(\.doc\b(?!x)|doc\s+file\b(?!x)|into\s+doc\b(?!x)|as\s+doc\b(?!x)|in\s+doc\b(?!x)|to\s+doc\b(?!x))/;
+  const docxType = /\b(\.docx|docx\s+file|into\s+docx|as\s+docx|in\s+docx|to\s+docx)\b/;
+  const wordType = /\b(word|ms\s*word|document|documnet|documnt)\b/;
+  const wordPhrase = /(in|as|into|to|on|as a|as an)\s+(word|ms\s*word|document)\b/;
   
-  const excelType = /\b(excel|xlsx?|xls\s+file|xlsx\s+file|spreadsheet)\b/;
-  const excelPhrase = /(in|as|into|to|on|as a|as an)\s+(excel|xlsx?|spreadsheet)\b/;
-  const xlsType = /\b(\.xls|xls\s+file)\b/;
-  const xlsxType = /\b(\.xlsx|xlsx\s+file)\b/;
+  // FIXED: More specific patterns for XLS vs XLSX
+const xlsType = /\b(\.xls\b(?!x)|xls\s+file\b(?!x)|into\s+xls\b(?!x)|as\s+xls\b(?!x)|in\s+xls\b(?!x)|to\s+xls\b(?!x))/;  const xlsxType = /\b(\.xlsx|xlsx\s+file|into\s+xlsx|as\s+xlsx|in\s+xlsx|to\s+xlsx)\b/;
+  const excelType = /\b(excel|spreadsheet)\b/;
+  const excelPhrase = /(in|as|into|to|on|as a|as an)\s+(excel|spreadsheet)\b/;
   
   const csvType = /\b(csv|\.csv|comma[- ]separated|comma\s+separated\s+values?)\b/;
   const csvPhrase = /(in|as|into|to|on|as a|as an)\s+(csv|comma[- ]separated)\b/;
@@ -168,8 +171,6 @@ function detectExportIntent(message = '') {
   const tiffType = /\b(tiff?|\.tiff?)\b/;
   const tiffPhrase = /(in|as|into|to|on|as a|as an)\s+tiff?\b/;
 
-  // ========== NEW: DATABASE FORMATS ==========
-  
   const mdbType = /\b(mdb|\.mdb|access\s+database|ms\s+access)\b/;
   const mdbPhrase = /(in|as|into|to|on|as a|as an)\s+(mdb|access\s+database|ms\s+access)\b/;
   
@@ -179,51 +180,61 @@ function detectExportIntent(message = '') {
   const exportVerbs = /(export|download|save|generate|create|deliver|send|prepare|produce|turn|make|give|get|provide|output|issue|write|print)\b/;
   const genericExport = /(report|summary|print\s?out|copy of this|copy of|send me|deliver|can i have|give me a copy|get a file|get this file|get a version|file version|downloadable|output this)\b/;
 
-  // ========== DETECTION LOGIC ==========
-  // Add MDB and ACCDB early in the priority chain (before CSV)
+  // ========== IMPROVED DETECTION LOGIC WITH PROPER PRIORITY ==========
+  // Most specific formats first (doc, xls, docx, xlsx) before generic (word, excel)
   
   const mdb = (mdbType.test(msg) || mdbPhrase.test(msg));
   const accdb = (accdbType.test(msg) || accdbPhrase.test(msg)) && !mdb;
-  const csv = (csvType.test(msg) || csvPhrase.test(msg)) && !mdb && !accdb;
-  const tsv = (tsvType.test(msg) || tsvPhrase.test(msg)) && !mdb && !accdb && !csv;
-  const docx = (docxType.test(msg)) && !mdb && !accdb && !csv && !tsv;
-  const doc = (docType.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx;
-  const xlsx = (xlsxType.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc;
-  const xls = (xlsType.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx;
-  const pptx = (pptxType.test(msg) || pptxPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls;
-  const ppt = (pptType.test(msg) || pptPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx;
-  const word = (wordType.test(msg) || wordPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt;
-  const excel = (excelType.test(msg) || excelPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word;
-  const rtf = (rtfType.test(msg) || rtfPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel;
-  const pdf = (pdfType.test(msg) || pdfPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf;
-  const htm = (htmType.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf;
-  const html = (htmlType.test(msg) || htmlPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm;
-  const xml = (xmlType.test(msg) || xmlPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html;
-  const md = (mdType.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml;
-  const markdown = (markdownType.test(msg) || markdownPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md;
-  const txt = (txtType.test(msg) || txtPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown;
-  const ods = (odsType.test(msg) || odsPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt;
-  const odt = (odtType.test(msg) || odtPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods;
-  const odp = (odpType.test(msg) || odpPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt;
-  const ics = (icsType.test(msg) || icsPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp;
-  const vcf = (vcfType.test(msg) || vcfPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics;
+  
+  // Check specific DOC first (higher priority)
+  const doc = docType.test(msg);
+  const docx = docxType.test(msg) && !doc;
+  
+  // Check specific XLS first (higher priority)
+  const xls = xlsType.test(msg);
+  const xlsx = xlsxType.test(msg) && !xls;
+  
+  // Then check generic formats
+  const csv = (csvType.test(msg) || csvPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx;
+  const tsv = (tsvType.test(msg) || tsvPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv;
+  
+  const pptx = (pptxType.test(msg) || pptxPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv;
+  const ppt = (pptType.test(msg) || pptPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx;
+  
+  // Generic word/excel only if no specific format detected
+  const word = (wordType.test(msg) || wordPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt;
+  const excel = (excelType.test(msg) || excelPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word;
+  
+  const rtf = (rtfType.test(msg) || rtfPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel;
+  const pdf = (pdfType.test(msg) || pdfPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf;
+  const htm = (htmType.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf;
+  const html = (htmlType.test(msg) || htmlPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm;
+  const xml = (xmlType.test(msg) || xmlPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html;
+  const md = (mdType.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml;
+  const markdown = (markdownType.test(msg) || markdownPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md;
+  const txt = (txtType.test(msg) || txtPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown;
+  const ods = (odsType.test(msg) || odsPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt;
+  const odt = (odtType.test(msg) || odtPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods;
+  const odp = (odpType.test(msg) || odpPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt;
+  const ics = (icsType.test(msg) || icsPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp;
+  const vcf = (vcfType.test(msg) || vcfPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics;
   const vcard = vcf;
-  const eml = (emlType.test(msg) || emlPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf;
-  const msg_format = (msgType.test(msg) || msgPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml;
-  const mbox = (mboxType.test(msg) || mboxPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format;
-  const zip = (zipType.test(msg) || zipPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox;
-  const rar = (rarType.test(msg) || rarPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip;
-  const sevenZ = (sevenZType.test(msg) || sevenZPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar;
-  const targz = (targzType.test(msg) || targzPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ;
-  const mp4 = (mp4Type.test(msg) || mp4Phrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz;
-  const mp3 = (mp3Type.test(msg) || mp3Phrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4;
-  const wav = (wavType.test(msg) || wavPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3;
-  const gif = (gifType.test(msg) || gifPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav;
-  const jpg = (jpgType.test(msg) || jpgPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif;
+  const eml = (emlType.test(msg) || emlPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf;
+  const msg_format = (msgType.test(msg) || msgPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml;
+  const mbox = (mboxType.test(msg) || mboxPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format;
+  const zip = (zipType.test(msg) || zipPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox;
+  const rar = (rarType.test(msg) || rarPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip;
+  const sevenZ = (sevenZType.test(msg) || sevenZPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar;
+  const targz = (targzType.test(msg) || targzPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ;
+  const mp4 = (mp4Type.test(msg) || mp4Phrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz;
+  const mp3 = (mp3Type.test(msg) || mp3Phrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4;
+  const wav = (wavType.test(msg) || wavPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3;
+  const gif = (gifType.test(msg) || gifPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav;
+  const jpg = (jpgType.test(msg) || jpgPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif;
   const jpeg = jpg;
-  const png = (pngType.test(msg) || pngPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif && !jpg;
-  const bmp = (bmpType.test(msg) || bmpPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif && !jpg && !png;
-  const tiff = (tiffType.test(msg) || tiffPhrase.test(msg)) && !mdb && !accdb && !csv && !tsv && !docx && !doc && !xlsx && !xls && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif && !jpg && !png && !bmp;
+  const png = (pngType.test(msg) || pngPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif && !jpg;
+  const bmp = (bmpType.test(msg) || bmpPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif && !jpg && !png;
+  const tiff = (tiffType.test(msg) || tiffPhrase.test(msg)) && !mdb && !accdb && !doc && !docx && !xls && !xlsx && !csv && !tsv && !pptx && !ppt && !word && !excel && !rtf && !pdf && !htm && !html && !xml && !md && !markdown && !txt && !ods && !odt && !odp && !ics && !vcf && !eml && !msg_format && !mbox && !zip && !rar && !sevenZ && !targz && !mp4 && !mp3 && !wav && !gif && !jpg && !png && !bmp;
   
   const generic = (exportVerbs.test(msg) || genericExport.test(msg)) && 
                   !(pdf || word || doc || docx || excel || xls || xlsx || csv || tsv || ppt || pptx || 
