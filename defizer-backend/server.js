@@ -27,7 +27,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 app.use('/uploads/profile_photos', express.static(path.join(__dirname, 'uploads', 'profile_photos')));
 
 // --- Serve Frontend Files ---
-const frontendPath = path.join(__dirname, './Front-end');
+const frontendPath = path.join(__dirname, '../Front-end');
 console.log('Serving frontend from:', frontendPath);
 app.use(express.static(frontendPath));
 
