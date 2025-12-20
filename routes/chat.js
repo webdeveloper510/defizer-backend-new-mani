@@ -637,83 +637,48 @@ Please give a friendly, concise weather update, just like a human would in chat.
       let originalFileFormat = null;
       let originalFileName = null;
       let structuredData = null;
-      let originalFilePath = null; // Save the original file path
+      let originalFilePath = null; 
+ path
 
-      if (req.files && req.files.length > 0) {
-        console.log("[CHAT] Processing", req.files.length, "uploaded file(s)");
+     if (req.files && req.files.length > 0) {
+  console.log("[CHAT] Processing", req.files.length, "uploaded file(s)");
 
-        try {
-          // Save original file path BEFORE processing
-          originalFilePath = req.files[0].path;
-          originalFileName = req.files[0].originalname;
+  try {
+    originalFilePath = req.files[0].path;
+    originalFileName = req.files[0].originalname;
+    
+    const ext = path.extname(originalFileName).toLowerCase().replace('.', '');
+    originalFileFormat = ext;
 
-          // Extract format
-          const ext = path.extname(originalFileName).toLowerCase().replace('.', '');
-          originalFileFormat = ext;
+    console.log('[CHAT] Original file saved at:', originalFilePath);
+    console.log('[CHAT] Format:', originalFileFormat);
 
-          console.log('[CHAT] Original file saved at:', originalFilePath);
-          console.log('[CHAT] Original format:', originalFileFormat);
+    // NO TEXT EXTRACTION HERE - AI will read file directly!
 
-          // Prepare files for import
-          const files = req.files.map((file) => ({
-            path: file.path,
-            mimetype: file.mimetype,
-            originalname: file.originalname,
-          }));
+  } catch (error) {
+    console.error("[CHAT FILE ERROR]", error);
+  }
+}
 
-          // Use your universal import function
-          const importResult = await importMultipleFiles(files, {
-            OPENAI_API_KEY,
-            summarize: true,
-            maxTotalChars: 80000,
-          });
-
-          if (importResult.combined) {
-            extractedText = importResult.combined;
-            importedFiles = importResult.files;
-
-            if (importedFiles.length > 0) {
-              const firstFile = importedFiles[0];
-              if (firstFile.structured) {
-                structuredData = firstFile.structured;
-              }
-            }
-
-            console.log(
-              "[CHAT] Successfully imported",
-              importResult.totalChars,
-              "characters from",
-              importedFiles.length,
-              "files"
-            );
-          }
-        } catch (importError) {
-          console.error("[CHAT IMPORT ERROR]", importError);
-          extractedText = "";
-        }
-      }
 // ===== DOCUMENT MODIFICATION SECTION - FIXED =====
-if (extractedText && message && originalFilePath) {
+if (originalFilePath && message) {
   const modificationType = detectModificationType(message);
 
-  console.log("[CHAT] Modification type detected:", modificationType);
-
   if (modificationType !== 'analyze') {
-    console.log("[CHAT] Processing document modification with AI HTML Pipeline");
+    console.log("[CHAT] Processing modification with AI direct read");
 
     try {
-      // Use AI-generated HTML approach (as per TL's request)
       const result = await modifyDocumentViaAIHTML({
-        extractedText: extractedText,
         originalFilePath: originalFilePath,
         originalFormat: originalFileFormat || 'txt',
         originalFileName: originalFileName || 'document',
         userRequest: message,
-        sessionId: sessId
+        sessionId: sessId,
+        OPENAI_API_KEY: OPENAI_API_KEY  // ✅ ADD THIS LINE
       });
 
       if (result.success) {
-        console.log('[CHAT] AI HTML modification successful!');
+        console.log('[CHAT] AI modification successful!');
 
         // Read the modified file
         const modifiedFileContent = await fs.promises.readFile(result.modifiedFilePath);
@@ -730,7 +695,15 @@ if (extractedText && message && originalFilePath) {
         const finalFileName = `${Date.now()}-${cleanBaseFilename}_modified.${originalFileFormat}`;
         const finalFilePath = path.join(uploadDir, finalFileName);
         
-        // Copy to uploads directory
+        console.log('[FILE GENERATION]', {
+          originalFileName,
+          baseFilename,
+          cleanBaseFilename,
+          finalFileName,
+          finalFilePath
+        });
+        
+        // Copy modified file to uploads directory with proper name
         await fs.promises.copyFile(result.modifiedFilePath, finalFilePath);
 
         // Verify file exists
@@ -749,16 +722,16 @@ if (extractedText && message && originalFilePath) {
 
         // Cleanup temporary files
         try {
-          await fs.promises.unlink(originalFilePath);
-          await fs.promises.unlink(result.modifiedFilePath);
+          await fs.promises.unlink(originalFilePath); // Delete original upload
+          await fs.promises.unlink(result.modifiedFilePath); // Delete temp modified file
           console.log('[CLEANUP] Temporary files removed successfully');
         } catch (cleanupError) {
           console.error('[CLEANUP ERROR]', cleanupError);
         }
 
-        const methodNote = '<br/><em>✅ Modified using AI-generated HTML pipeline!</em>';
+        const methodNote = '<br/><em>✅ Modified using AI direct read pipeline!</em>';
 
-        const replyText = `✅ I've modified your document using AI-generated HTML approach!${methodNote}<br/><br/>📄 <strong>Download Modified Document:</strong><br/><a href="${BASE_URL}${downloadUrl}" target="_blank" rel="noopener noreferrer" download="${finalFileName}">${finalFileName}</a>`;
+        const replyText = `✅ I've modified your document using AI!${methodNote}<br/><br/>📄 <strong>Download Modified Document:</strong><br/><a href="${BASE_URL}${downloadUrl}" target="_blank" rel="noopener noreferrer" download="${finalFileName}">${finalFileName}</a>`;
 
         await saveMessage(
           sessId,
@@ -777,7 +750,7 @@ if (extractedText && message && originalFilePath) {
 
         return res.json({ reply: replyText });
       } else {
-        throw new Error(result.error || 'AI HTML modification failed');
+        throw new Error(result.error || 'AI modification failed');
       }
 
     } catch (modifyError) {

@@ -1,91 +1,67 @@
-// utils/aiDocumentModifier.js - NEW FILE
+// utils/aiDocumentModifier.js - FIXED VERSION
 
 const fs = require('fs').promises;
 const path = require('path');
-const { generateHTMLFromContent, modifyHTMLWithAI, analyzeDocumentStructure } = require('./aiHtmlGenerator');
+const { aiReadDocumentAndGenerateHTML, aiModifyHTML } = require('./aiDocumentReader');
 const { convertHTMLToFormat } = require('./htmlConverter');
 
-/**
- * MAIN FUNCTION: AI-Powered HTML Pipeline
- * This is what your TL wants implemented
- */
 async function modifyDocumentViaAIHTML(options) {
   const {
-    extractedText,
     originalFilePath,
     originalFormat,
     originalFileName,
     userRequest,
-    sessionId
+    sessionId,
+    OPENAI_API_KEY 
   } = options;
 
-  console.log('[AI HTML PIPELINE] Starting modification', {
+  console.log('[AI PIPELINE - SIMPLE] Starting', {
+    file: originalFileName,
     format: originalFormat,
-    textLength: extractedText.length,
     request: userRequest.slice(0, 100)
   });
 
   try {
-    // STEP 1: Analyze document structure
-    const metadata = analyzeDocumentStructure(extractedText);
-    console.log('[AI HTML PIPELINE] Document analysis:', metadata);
-
-    // STEP 2: AI generates HTML from extracted content
-    console.log('[AI HTML PIPELINE] AI generating HTML from content...');
-    const generatedHTML = await generateHTMLFromContent(
-      extractedText,
+    // ===== STEP 1: AI READS DOCUMENT AND GENERATES HTML =====
+    console.log('[STEP 1] AI reading document directly and generating HTML...');
+    
+    const generatedHTML = await aiReadDocumentAndGenerateHTML(
+      originalFilePath,
       originalFormat,
-      metadata
+      userRequest,
+      OPENAI_API_KEY  
     );
     
-    // Save intermediate HTML for debugging (optional)
-    const htmlDebugPath = originalFilePath.replace(/\.[^.]+$/, '_generated.html');
-    await fs.writeFile(htmlDebugPath, generatedHTML);
-    console.log('[AI HTML PIPELINE] Generated HTML saved:', htmlDebugPath);
-
-    // STEP 3: AI modifies the HTML based on user request
-    console.log('[AI HTML PIPELINE] AI modifying HTML based on request...');
-    const modifiedHTML = await modifyHTMLWithAI(generatedHTML, userRequest);
+    console.log('[STEP 1] ✓ HTML generated:', generatedHTML.length, 'chars');
     
-    // Save modified HTML for debugging (optional)
-    const modifiedHtmlPath = originalFilePath.replace(/\.[^.]+$/, '_modified.html');
-    await fs.writeFile(modifiedHtmlPath, modifiedHTML);
-    console.log('[AI HTML PIPELINE] Modified HTML saved:', modifiedHtmlPath);
+    // Save for debugging
+    const htmlPath = originalFilePath.replace(/\.[^.]+$/, '_ai_generated.html');
+    await fs.writeFile(htmlPath, generatedHTML);
 
-    // STEP 4: Convert modified HTML back to original format
-    console.log('[AI HTML PIPELINE] Converting HTML to', originalFormat);
-    const outputPath = originalFilePath.replace(/(\.[^.]+)$/, '_final_modified$1');
+    // ===== STEP 2: CONVERT HTML TO ORIGINAL FORMAT =====
+    console.log('[STEP 2] Converting HTML to', originalFormat);
     
-    await convertHTMLToFormat(modifiedHTML, originalFormat, outputPath);
+    const outputPath = originalFilePath.replace(/(\.[^.]+)$/, '_modified$1');
+    await convertHTMLToFormat(generatedHTML, originalFormat, outputPath);
+    
+    console.log('[STEP 2] ✓ File created:', outputPath);
 
-    console.log('[AI HTML PIPELINE] Final file created:', outputPath);
-
-    // Cleanup temporary HTML files (optional)
     try {
-      await fs.unlink(htmlDebugPath);
-      await fs.unlink(modifiedHtmlPath);
-    } catch (e) {
-      console.log('[AI HTML PIPELINE] Cleanup warning:', e.message);
-    }
+      await fs.unlink(htmlPath);
+    } catch (e) {}
 
     return {
       success: true,
       modifiedFilePath: outputPath,
       originalFormat: originalFormat,
-      method: 'ai-html-pipeline',
-      metadata: {
-        aiGenerated: true,
-        htmlIntermediate: true,
-        stepsCompleted: ['extract', 'ai-html-gen', 'ai-modify', 'convert']
-      }
+      method: 'ai-direct-read'
     };
 
   } catch (error) {
-    console.error('[AI HTML PIPELINE ERROR]', error);
+    console.error('[AI PIPELINE ERROR]', error);
     return {
       success: false,
-      error: error.message,
-      method: 'ai-html-pipeline'
+      error: error.message
     };
   }
 }
