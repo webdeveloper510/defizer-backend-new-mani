@@ -144,7 +144,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
 
   // SEND TO BACKEND!
   try {
-    const res = await fetch('${CONFIG.API_BASE}/api/signup', {
+    const res = await fetch(`${CONFIG.API_BASE}/api/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
