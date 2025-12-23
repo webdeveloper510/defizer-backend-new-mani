@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <title>Sign In – Beilis Module™ SaaS</title>
+    <script src="../config.js"></script>
+
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;800&display=swap" rel="stylesheet"/>
   <style>
@@ -146,11 +148,12 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 
   // Send login data to backend!
   try {
-    const res = await fetch('http://localhost:3000/api/login', {
+    const res = await fetch(`${CONFIG.API_BASE}/api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password: pw })
     });
+    console.log("🚀 ~ res:", res)
     const data = await res.json();
     if (res.ok) {
       // Save JWT to localStorage for future authenticated requests

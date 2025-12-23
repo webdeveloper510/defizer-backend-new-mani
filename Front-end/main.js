@@ -1,3 +1,4 @@
+
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -5,7 +6,8 @@ function generateUUID() {
   });
 }
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = CONFIG.API_BASE;
+console.log("🚀 ~ API_BASE:", API_BASE)
 const token = localStorage.getItem('authToken');
 // Only redirect to login if not viewing a shared thread
 const urlParams = new URLSearchParams(window.location.search);
@@ -1047,7 +1049,7 @@ inputEl.addEventListener('input', function () {
     }
     suggestionBar.textContent = "Loading...";
     try {
-      const res = await fetch('http://localhost:3000/api/suggest-prompt', {
+      const res = await fetch(`${API_BASE}/api/suggest-prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: val })

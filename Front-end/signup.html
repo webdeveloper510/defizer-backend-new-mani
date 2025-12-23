@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <title>Sign Up – Beilis Module™ SaaS</title>
+    <script src="../config.js"></script>
+
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;800&display=swap" rel="stylesheet"/>
   <style>
@@ -142,7 +144,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
 
   // SEND TO BACKEND!
   try {
-    const res = await fetch('http://localhost:3000/api/signup', {
+    const res = await fetch('${CONFIG.API_BASE}/api/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -160,7 +162,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
 
       // Optionally, log in the user automatically:
       try {
-        const loginRes = await fetch('http://localhost:3000/api/login', {
+        const loginRes = await fetch('${CONFIG.API_BASE}/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password: pw })

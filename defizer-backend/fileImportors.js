@@ -1,674 +1,521 @@
-// fileImporters.js - COMPLETE IMPORT SYSTEM
-const fs = require('fs');
-const path = require('path');
-const pdfParse = require('pdf-parse');
+// utils/fileImporter.js - COMPLETE IMPORT HANDLER FOR ALL EXPORT FORMATS
+
 const mammoth = require('mammoth');
 const XLSX = require('xlsx');
-const Tesseract = require('tesseract.js');
-const { parse: parseCSV } = require('csv-parse/sync');
+const pdfParse = require('pdf-parse');
+const fs = require('fs').promises;
+const fsSync = require('fs');
+const path = require('path');
 const AdmZip = require('adm-zip');
-const xml2js = require('xml2js');
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
+const { parseStringPromise } = require('xml2js');
 
 /**
- * Clean extracted text from files
+ * Main import function - handles ALL formats from your export system
  */
-function cleanExtractedText(text) {
-  return (text || '')
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
-    .replace(/\r\n|\r/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
+async function importFile(filePath, originalFormat) {
+  const format = originalFormat.toLowerCase();
+  
+  console.log('[IMPORT] Processing:', { filePath, format });
 
-/**
- * Chunk large text for AI processing
- */
-function chunkText(text, chunkSize = 5000) {
-  const chunks = [];
-  for (let i = 0; i < text.length; i += chunkSize) {
-    chunks.push(text.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
-
-/**
- * Summarize chunk with OpenAI (for large files)
- */
-async function summarizeChunkWithAI(chunk, filename, chunkIndex, totalChunks, OPENAI_API_KEY) {
-  const prompt = `
-You are an expert document analyst. Summarize this section concisely, keeping all important details, numbers, and facts.
-
-[${filename} - Section ${chunkIndex}/${totalChunks}]
-
-${chunk}
-  `.trim();
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o',
-      messages: [{ role: 'system', content: prompt }],
-      max_tokens: 512
-    })
-  });
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content?.trim() || '';
-}
-
-// ============================================================================
-// CORE IMPORT HANDLERS
-// ============================================================================
-
-/**
- * Import PDF files
- */
-async function importPDF(filePath, options = {}) {
   try {
-    const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdfParse(dataBuffer);
-    
-    let extracted = cleanExtractedText(data.text || '');
-    
-    // Handle large PDFs with summarization
-    if (options.summarize && extracted.length > 20000) {
-      const chunks = chunkText(extracted, 5000);
-      const summaries = [];
+    switch(format) {
+      // ===== OFFICE DOCUMENTS =====
+      case 'docx':
+      case 'doc':
+        return await importWord(filePath);
       
-      for (let i = 0; i < chunks.length; i++) {
-        const summary = await summarizeChunkWithAI(
-          chunks[i],
-          options.filename || 'document.pdf',
-          i + 1,
-          chunks.length,
-          options.OPENAI_API_KEY
-        );
-        summaries.push(summary);
-      }
+      case 'xlsx':
+      case 'xls':
+      case 'ods':
+        return await importSpreadsheet(filePath, format);
       
-      extracted = summaries.join('\n\n');
+      case 'pptx':
+      case 'ppt':
+      case 'odp':
+        return await importPresentation(filePath, format);
+      
+      case 'pdf':
+        return await importPDF(filePath);
+      
+      case 'odt':
+        return await importODT(filePath);
+      
+      case 'rtf':
+        return await importRTF(filePath);
+      
+      // ===== TEXT FORMATS =====
+      case 'txt':
+      case 'md':
+      case 'markdown':
+        return await importText(filePath);
+      
+      case 'csv':
+        return await importCSV(filePath);
+      
+      case 'tsv':
+        return await importTSV(filePath);
+      
+      // ===== WEB FORMATS =====
+      case 'html':
+      case 'htm':
+        return await importHTML(filePath);
+      
+      case 'xml':
+        return await importXML(filePath);
+      
+      // ===== IMAGES =====
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'bmp':
+      case 'tiff':
+        return await importImage(filePath, format);
+      
+      // ===== ARCHIVES =====
+      case 'zip':
+        return await importZIP(filePath);
+      
+      case 'rar':
+      case '7z':
+      case 'tar.gz':
+        return await importArchive(filePath, format);
+      
+      // ===== SPECIAL FORMATS =====
+      case 'ics':
+        return await importICS(filePath);
+      
+      case 'vcf':
+        return await importVCF(filePath);
+      
+      case 'eml':
+      case 'msg':
+      case 'mbox':
+        return await importEmail(filePath, format);
+      
+      default:
+        return {
+          success: false,
+          error: `Unsupported import format: ${format}`
+        };
     }
-    
-    return {
-      success: true,
-      content: extracted,
-      metadata: {
-        pages: data.numpages,
-        info: data.info,
-        filename: options.filename
-      }
-    };
   } catch (error) {
+    console.error('[IMPORT ERROR]', error);
     return {
       success: false,
-      error: `PDF import failed: ${error.message}`
+      error: error.message,
+      extractedText: '',
+      metadata: {}
     };
   }
 }
 
-/**
- * Import Word documents (.doc, .docx)
- */
-async function importWord(filePath, options = {}) {
+// ============================================================================
+// OFFICE DOCUMENT IMPORTERS
+// ============================================================================
+
+async function importWord(filePath) {
   try {
     const result = await mammoth.extractRawText({ path: filePath });
-    let extracted = cleanExtractedText(result.value || '');
-    
-    if (options.summarize && extracted.length > 20000) {
-      const chunks = chunkText(extracted, 5000);
-      const summaries = [];
-      
-      for (let i = 0; i < chunks.length; i++) {
-        const summary = await summarizeChunkWithAI(
-          chunks[i],
-          options.filename || 'document.docx',
-          i + 1,
-          chunks.length,
-          options.OPENAI_API_KEY
-        );
-        summaries.push(summary);
-      }
-      
-      extracted = summaries.join('\n\n');
-    }
+    const htmlResult = await mammoth.convertToHtml({ path: filePath });
     
     return {
       success: true,
-      content: extracted,
+      extractedText: result.value,
+      htmlContent: htmlResult.value,
+      format: 'docx',
       metadata: {
-        messages: result.messages,
-        filename: options.filename
+        type: 'word_document',
+        hasFormatting: true
       }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: `Word import failed: ${error.message}`
-    };
+    throw new Error(`Word import failed: ${error.message}`);
   }
 }
 
-/**
- * Import Excel files (.xls, .xlsx)
- */
-async function importExcel(filePath, options = {}) {
+async function importSpreadsheet(filePath, format) {
   try {
     const workbook = XLSX.readFile(filePath);
     const sheets = {};
-    let combinedContent = '';
+    let allText = '';
     
     workbook.SheetNames.forEach(sheetName => {
       const worksheet = workbook.Sheets[sheetName];
       
-      // Convert to JSON for structured data
+      // Get as JSON for structured data
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      sheets[sheetName] = jsonData;
       
-      // Convert to CSV-like text
-      const csvText = XLSX.utils.sheet_to_csv(worksheet);
-      
-      sheets[sheetName] = {
-        json: jsonData,
-        csv: csvText
-      };
-      
-      combinedContent += `\n\n[Sheet: ${sheetName}]\n${csvText}`;
+      // Get as text
+      const sheetText = jsonData.map(row => row.join('\t')).join('\n');
+      allText += `\n=== ${sheetName} ===\n${sheetText}\n`;
     });
     
     return {
       success: true,
-      content: combinedContent.trim(),
-      structured: sheets,
+      extractedText: allText,
+      structuredData: sheets,
+      format: format,
       metadata: {
+        type: 'spreadsheet',
         sheetCount: workbook.SheetNames.length,
-        sheetNames: workbook.SheetNames,
-        filename: options.filename
+        sheetNames: workbook.SheetNames
       }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: `Excel import failed: ${error.message}`
-    };
+    throw new Error(`Spreadsheet import failed: ${error.message}`);
   }
 }
 
-/**
- * Import CSV files
- */
-async function importCSV(filePath, options = {}) {
+async function importPresentation(filePath, format) {
   try {
-    const fileContent = fs.readFileSync(filePath, 'utf8');
+    // For PPTX, extract text from slides
+    if (format === 'pptx') {
+      const zip = new AdmZip(filePath);
+      const entries = zip.getEntries();
+      let slideTexts = [];
+      
+      entries.forEach(entry => {
+        if (entry.entryName.match(/ppt\/slides\/slide\d+\.xml/)) {
+          const content = entry.getData().toString('utf8');
+          // Extract text between <a:t> tags
+          const texts = content.match(/<a:t>(.*?)<\/a:t>/g) || [];
+          const slideText = texts.map(t => t.replace(/<\/?a:t>/g, '')).join(' ');
+          if (slideText) slideTexts.push(slideText);
+        }
+      });
+      
+      return {
+        success: true,
+        extractedText: slideTexts.join('\n\n'),
+        format: format,
+        metadata: {
+          type: 'presentation',
+          slideCount: slideTexts.length
+        }
+      };
+    }
+    
+    // Fallback for other formats
+    return {
+      success: true,
+      extractedText: 'Presentation file (text extraction limited)',
+      format: format,
+      metadata: { type: 'presentation' }
+    };
+  } catch (error) {
+    throw new Error(`Presentation import failed: ${error.message}`);
+  }
+}
+
+async function importPDF(filePath) {
+  try {
+    const buffer = await fs.readFile(filePath);
+    const data = await pdfParse(buffer);
+    
+    return {
+      success: true,
+      extractedText: data.text,
+      format: 'pdf',
+      metadata: {
+        type: 'pdf',
+        pages: data.numpages,
+        info: data.info
+      }
+    };
+  } catch (error) {
+    throw new Error(`PDF import failed: ${error.message}`);
+  }
+}
+
+async function importODT(filePath) {
+  try {
+    // ODT is a ZIP containing XML
+    const zip = new AdmZip(filePath);
+    const contentXml = zip.getEntry('content.xml');
+    
+    if (contentXml) {
+      const content = contentXml.getData().toString('utf8');
+      // Basic text extraction - remove XML tags
+      const text = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      
+      return {
+        success: true,
+        extractedText: text,
+        format: 'odt',
+        metadata: { type: 'opendocument_text' }
+      };
+    }
+    
+    throw new Error('Could not find content.xml in ODT file');
+  } catch (error) {
+    throw new Error(`ODT import failed: ${error.message}`);
+  }
+}
+
+async function importRTF(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    // Basic RTF text extraction - remove RTF codes
+    const text = content
+      .replace(/\\[a-z]+\d*\s?/g, ' ')
+      .replace(/[{}]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    return {
+      success: true,
+      extractedText: text,
+      format: 'rtf',
+      metadata: { type: 'rich_text' }
+    };
+  } catch (error) {
+    throw new Error(`RTF import failed: ${error.message}`);
+  }
+}
+
+// ============================================================================
+// TEXT FORMAT IMPORTERS
+// ============================================================================
+
+async function importText(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    
+    return {
+      success: true,
+      extractedText: content,
+      format: path.extname(filePath).slice(1),
+      metadata: { type: 'plain_text' }
+    };
+  } catch (error) {
+    throw new Error(`Text import failed: ${error.message}`);
+  }
+}
+
+async function importCSV(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.split('\n').filter(l => l.trim());
     
     // Parse CSV
-    const records = parseCSV(fileContent, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true
+    const rows = lines.map(line => {
+      // Simple CSV parsing (handles quoted fields)
+      const matches = line.match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g) || [];
+      return matches.map(m => m.replace(/^"|"$/g, '').trim());
     });
     
-    // Convert to readable text
-    let textContent = '';
-    if (records.length > 0) {
-      const headers = Object.keys(records[0]);
-      textContent = headers.join(', ') + '\n\n';
-      
-      records.forEach(row => {
-        textContent += headers.map(h => row[h] || '').join(', ') + '\n';
-      });
-    }
-    
     return {
       success: true,
-      content: textContent.trim(),
-      structured: records,
+      extractedText: content,
+      structuredData: rows,
+      format: 'csv',
       metadata: {
-        rowCount: records.length,
-        filename: options.filename
+        type: 'csv',
+        rowCount: rows.length,
+        columnCount: rows[0]?.length || 0
       }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: `CSV import failed: ${error.message}`
-    };
+    throw new Error(`CSV import failed: ${error.message}`);
   }
 }
 
-/**
- * Import TSV files
- */
-async function importTSV(filePath, options = {}) {
+async function importTSV(filePath) {
   try {
-    const fileContent = fs.readFileSync(filePath, 'utf8');
-    
-    const records = parseCSV(fileContent, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      delimiter: '\t'
-    });
-    
-    let textContent = '';
-    if (records.length > 0) {
-      const headers = Object.keys(records[0]);
-      textContent = headers.join('\t') + '\n\n';
-      
-      records.forEach(row => {
-        textContent += headers.map(h => row[h] || '').join('\t') + '\n';
-      });
-    }
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.split('\n').filter(l => l.trim());
+    const rows = lines.map(line => line.split('\t'));
     
     return {
       success: true,
-      content: textContent.trim(),
-      structured: records,
+      extractedText: content,
+      structuredData: rows,
+      format: 'tsv',
       metadata: {
-        rowCount: records.length,
-        filename: options.filename
+        type: 'tsv',
+        rowCount: rows.length,
+        columnCount: rows[0]?.length || 0
       }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: `TSV import failed: ${error.message}`
-    };
+    throw new Error(`TSV import failed: ${error.message}`);
   }
 }
 
-/**
- * Import PowerPoint files (.ppt, .pptx)
- */
-async function importPowerPoint(filePath, options = {}) {
-  try {
-    // For PPTX, we can use officeparser or similar library
-    // For now, placeholder implementation
-    return {
-      success: true,
-      content: `PowerPoint file: ${options.filename}\n[PowerPoint import requires additional library]`,
-      metadata: {
-        filename: options.filename,
-        note: 'Full PowerPoint parsing requires officeparser library'
-      }
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: `PowerPoint import failed: ${error.message}`
-    };
-  }
-}
+// ============================================================================
+// WEB FORMAT IMPORTERS
+// ============================================================================
 
-/**
- * Import images with OCR
- */
-async function importImage(filePath, options = {}) {
+async function importHTML(filePath) {
   try {
-    const imageBuffer = fs.readFileSync(filePath);
-    const { data: { text } } = await Tesseract.recognize(imageBuffer, 'eng');
-    
-    const extracted = cleanExtractedText(text || '');
-    
-    return {
-      success: true,
-      content: extracted,
-      metadata: {
-        filename: options.filename,
-        method: 'OCR'
-      }
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: `Image import failed: ${error.message}`
-    };
-  }
-}
-
-/**
- * Import text files
- */
-async function importText(filePath, options = {}) {
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const cleaned = cleanExtractedText(content);
-    
-    return {
-      success: true,
-      content: cleaned,
-      metadata: {
-        filename: options.filename
-      }
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: `Text import failed: ${error.message}`
-    };
-  }
-}
-
-/**
- * Import RTF files
- */
-async function importRTF(filePath, options = {}) {
-  try {
-    // RTF requires specific parser, for now treat as text
-    const content = fs.readFileSync(filePath, 'utf8');
-    
-    // Basic RTF tag removal
-    let cleaned = content
-      .replace(/\\[a-z]+[0-9]*\s?/g, ' ')
-      .replace(/[{}]/g, '')
-      .replace(/\\/g, '');
-    
-    cleaned = cleanExtractedText(cleaned);
-    
-    return {
-      success: true,
-      content: cleaned,
-      metadata: {
-        filename: options.filename,
-        note: 'Basic RTF parsing - formatting may be lost'
-      }
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: `RTF import failed: ${error.message}`
-    };
-  }
-}
-
-/**
- * Import HTML files
- */
-async function importHTML(filePath, options = {}) {
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    
-    // Strip HTML tags for text content
-    let text = content
+    const content = await fs.readFile(filePath, 'utf-8');
+    // Extract text from HTML
+    const text = content
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
       .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&[a-z]+;/gi, ' ');
-    
-    text = cleanExtractedText(text);
+      .replace(/\s+/g, ' ')
+      .trim();
     
     return {
       success: true,
-      content: text,
-      rawHTML: content,
-      metadata: {
-        filename: options.filename
-      }
+      extractedText: text,
+      htmlContent: content,
+      format: 'html',
+      metadata: { type: 'html' }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: `HTML import failed: ${error.message}`
-    };
+    throw new Error(`HTML import failed: ${error.message}`);
   }
 }
 
-/**
- * Import XML files
- */
-async function importXML(filePath, options = {}) {
+async function importXML(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const parser = new xml2js.Parser();
+    const content = await fs.readFile(filePath, 'utf-8');
+    const parsed = await parseStringPromise(content);
     
-    const result = await parser.parseStringPromise(content);
-    const jsonString = JSON.stringify(result, null, 2);
+    // Extract text from XML
+    const extractText = (obj) => {
+      if (typeof obj === 'string') return obj;
+      if (Array.isArray(obj)) return obj.map(extractText).join(' ');
+      if (typeof obj === 'object') {
+        return Object.values(obj).map(extractText).join(' ');
+      }
+      return '';
+    };
+    
+    const text = extractText(parsed);
     
     return {
       success: true,
-      content: jsonString,
-      structured: result,
-      metadata: {
-        filename: options.filename
-      }
+      extractedText: text,
+      structuredData: parsed,
+      format: 'xml',
+      metadata: { type: 'xml' }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: `XML import failed: ${error.message}`
-    };
+    throw new Error(`XML import failed: ${error.message}`);
   }
 }
 
-/**
- * Import ZIP files (extracts and processes contents)
- */
-async function importZIP(filePath, options = {}) {
+// ============================================================================
+// IMAGE IMPORTERS (OCR if needed)
+// ============================================================================
+
+async function importImage(filePath, format) {
+  // For now, just return metadata
+  // You could add Tesseract.js for OCR if needed
+  try {
+    const stats = await fs.stat(filePath);
+    
+    return {
+      success: true,
+      extractedText: `[Image file: ${path.basename(filePath)}]`,
+      format: format,
+      metadata: {
+        type: 'image',
+        size: stats.size,
+        format: format
+      }
+    };
+  } catch (error) {
+    throw new Error(`Image import failed: ${error.message}`);
+  }
+}
+
+// ============================================================================
+// ARCHIVE IMPORTERS
+// ============================================================================
+
+async function importZIP(filePath) {
   try {
     const zip = new AdmZip(filePath);
-    const zipEntries = zip.getEntries();
+    const entries = zip.getEntries();
     
-    const contents = [];
-    const tempDir = path.join(path.dirname(filePath), 'temp_extracted');
+    const fileList = entries.map(e => ({
+      name: e.entryName,
+      size: e.header.size,
+      compressed: e.header.compressedSize
+    }));
     
-    // Create temp directory
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    // Extract all files
-    zip.extractAllTo(tempDir, true);
-    
-    // Process each file
-    for (const entry of zipEntries) {
-      if (!entry.isDirectory) {
-        const extractedPath = path.join(tempDir, entry.entryName);
-        const ext = path.extname(entry.entryName).toLowerCase();
-        
-        let fileResult = null;
-        
-        switch (ext) {
-          case '.pdf':
-            fileResult = await importPDF(extractedPath, { ...options, filename: entry.entryName });
-            break;
-          case '.docx':
-          case '.doc':
-            fileResult = await importWord(extractedPath, { ...options, filename: entry.entryName });
-            break;
-          case '.xlsx':
-          case '.xls':
-            fileResult = await importExcel(extractedPath, { ...options, filename: entry.entryName });
-            break;
-          case '.csv':
-            fileResult = await importCSV(extractedPath, { ...options, filename: entry.entryName });
-            break;
-          case '.txt':
-            fileResult = await importText(extractedPath, { ...options, filename: entry.entryName });
-            break;
-          default:
-            fileResult = { success: false, error: 'Unsupported file type in ZIP' };
-        }
-        
-        if (fileResult && fileResult.success) {
-          contents.push({
-            filename: entry.entryName,
-            content: fileResult.content
-          });
-        }
-      }
-    }
-    
-    // Clean up temp directory
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    
-    // Combine all contents
-    const combinedContent = contents
-      .map(c => `\n[File: ${c.filename}]\n${c.content}`)
-      .join('\n\n');
+    const text = `ZIP Archive Contents:\n${fileList.map(f => `- ${f.name} (${f.size} bytes)`).join('\n')}`;
     
     return {
       success: true,
-      content: combinedContent,
-      files: contents,
+      extractedText: text,
+      structuredData: { files: fileList },
+      format: 'zip',
       metadata: {
-        fileCount: contents.length,
-        filename: options.filename
+        type: 'archive',
+        fileCount: entries.length
       }
     };
   } catch (error) {
-    return {
-      success: false,
-      error: `ZIP import failed: ${error.message}`
-    };
+    throw new Error(`ZIP import failed: ${error.message}`);
   }
 }
 
-// ============================================================================
-// MAIN IMPORT ROUTER
-// ============================================================================
-
-/**
- * Main import function - routes to appropriate handler
- */
-async function importFile(filePath, mimeType, originalName, options = {}) {
-  const ext = path.extname(originalName).toLowerCase();
-  
-  // Add filename to options
-  options.filename = originalName;
-  
-  console.log(`[IMPORT] Processing: ${originalName} (${mimeType})`);
-  
-  // Route to appropriate handler
-  switch (ext) {
-    case '.pdf':
-      return await importPDF(filePath, options);
-      
-    case '.docx':
-    case '.doc':
-      return await importWord(filePath, options);
-      
-    case '.xlsx':
-    case '.xls':
-      return await importExcel(filePath, options);
-      
-    case '.csv':
-      return await importCSV(filePath, options);
-      
-    case '.tsv':
-      return await importTSV(filePath, options);
-      
-    case '.pptx':
-    case '.ppt':
-      return await importPowerPoint(filePath, options);
-      
-    case '.txt':
-      return await importText(filePath, options);
-      
-    case '.rtf':
-      return await importRTF(filePath, options);
-      
-    case '.html':
-    case '.htm':
-      return await importHTML(filePath, options);
-      
-    case '.xml':
-      return await importXML(filePath, options);
-      
-    case '.zip':
-      return await importZIP(filePath, options);
-      
-    case '.jpg':
-    case '.jpeg':
-    case '.png':
-    case '.gif':
-    case '.bmp':
-    case '.tiff':
-      return await importImage(filePath, options);
-      
-    default:
-      // Try as text file
-      if (mimeType && mimeType.startsWith('text/')) {
-        return await importText(filePath, options);
-      }
-      
-      return {
-        success: false,
-        error: `Unsupported file format: ${ext}`
-      };
-  }
-}
-
-/**
- * Process multiple files
- */
-async function importMultipleFiles(files, options = {}) {
-  const results = [];
-  const MAX_TOTAL_CHARS = options.maxTotalChars || 80000;
-  let totalChars = 0;
-  
-  for (const file of files) {
-    const result = await importFile(file.path, file.mimetype, file.originalname, options);
-    
-    if (result.success) {
-      const content = result.content || '';
-      const withLabel = `\n[${file.originalname}]\n${content}\n`;
-      
-      // Extract file format
-      const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
-      
-      if (totalChars + withLabel.length > MAX_TOTAL_CHARS) {
-        const allowed = MAX_TOTAL_CHARS - totalChars;
-        if (allowed > 0) {
-          results.push({
-            filename: file.originalname,
-            content: withLabel.slice(0, allowed),
-            truncated: true,
-            format: ext,  // ADD FORMAT
-            structured: result.structured, // ADD STRUCTURED DATA
-            metadata: result.metadata
-          });
-          totalChars += allowed;
-        }
-        break;
-      } else {
-        results.push({
-          filename: file.originalname,
-          content: withLabel,
-          contentLength: content.length,
-          format: ext,  // ADD FORMAT
-          structured: result.structured, // ADD STRUCTURED DATA
-          metadata: result.metadata
-        });
-        totalChars += withLabel.length;
-      }
-    } else {
-      console.error(`[IMPORT ERROR] ${file.originalname}: ${result.error}`);
-    }
-  }
-  
+async function importArchive(filePath, format) {
+  // Basic archive info
   return {
-    combined: results.map(r => r.content).join('\n\n'),
-    files: results,
-    totalChars
+    success: true,
+    extractedText: `Archive file (${format.toUpperCase()})`,
+    format: format,
+    metadata: { type: 'archive' }
   };
 }
 
 // ============================================================================
-// EXPORTS
+// SPECIAL FORMAT IMPORTERS
 // ============================================================================
 
+async function importICS(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    
+    return {
+      success: true,
+      extractedText: content,
+      format: 'ics',
+      metadata: { type: 'calendar' }
+    };
+  } catch (error) {
+    throw new Error(`ICS import failed: ${error.message}`);
+  }
+}
+
+async function importVCF(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    
+    return {
+      success: true,
+      extractedText: content,
+      format: 'vcf',
+      metadata: { type: 'vcard' }
+    };
+  } catch (error) {
+    throw new Error(`VCF import failed: ${error.message}`);
+  }
+}
+
+async function importEmail(filePath, format) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    
+    return {
+      success: true,
+      extractedText: content,
+      format: format,
+      metadata: { type: 'email' }
+    };
+  } catch (error) {
+    throw new Error(`Email import failed: ${error.message}`);
+  }
+}
+
 module.exports = {
-  importFile,
-  importMultipleFiles,
-  cleanExtractedText,
-  chunkText,
-  summarizeChunkWithAI
+  importFile
 };

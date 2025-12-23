@@ -8,20 +8,15 @@ const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const Tesseract = require("tesseract.js");
 const mammoth = require("mammoth");
-const { modifyFileNatively } = require('../nativeFileEditor');
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 const { pool } = require("../db");
 const { authenticate } = require("../middleware/authenticate");
-const { modifyDocumentViaAIHTML } = require('../utils/aiDocumentModifier');
+const { modifyDocumentDirectly } = require("../utils/directDocumentModifier");
 
 // ===== UPDATED IMPORT - Use universal exportFile =====
 const { exportFile, cleanExportContent } = require("../fileGenerators");
-const { importMultipleFiles } = require("../fileImportors");
-const {
-  processDocumentModification,
-  detectModificationType,
-} = require("../documentProcessor");
+const { importFile } = require("../fileImportors");
 const {
   latestWebSearch,
   extractReadableContent,
@@ -30,7 +25,10 @@ const { generateExportTitle } = require("../utils/generateExportTitle");
 const { scrapePageGeneral } = require("../utils/scrapePageGeneral");
 const { getWeather } = require("../utils/weather");
 const { callOpenAI } = require("../services/openAi.service");
-
+const {
+  processDocumentModification,
+  detectModificationType,
+} = require("../documentProcessor");
 // ==== Engine imports and mappings ====
 const businessEngine = require("../engines/business");
 const astrologyEngine = require("../engines/astrology");
@@ -121,54 +119,6 @@ function isWeatherQuery(msg) {
   );
   return match ? match[1].trim() : null;
 }
-
-// Helper: clean extracted text
-function cleanExtractedText(text) {
-  return (text || "")
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, "")
-    .replace(/\r\n|\r/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-}
-
-// Helper: chunk big text
-function chunkText(text, chunkSize = 5000) {
-  const out = [];
-  for (let i = 0; i < text.length; i += chunkSize) {
-    out.push(text.slice(i, i + chunkSize));
-  }
-  return out;
-}
-
-// Helper: summarize chunk with OpenAI
-async function summarizeChunkWithAI(chunk, filename, chunkIndex, totalChunks) {
-  const prompt = `
-You are an expert business analyst. Summarize the following document section as if preparing key notes for executive review. Be concise but keep all numbers, financial details, names, and unique facts. Ignore repeated headers, footers, page numbers.
-
-If this is part of a multi-chunk document, do NOT reference "this chunk" or "the next chunk", just summarize content only.
-
-[${filename} - Section ${chunkIndex}/${totalChunks}]
-
-${chunk}
-  `.trim();
-
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [{ role: "system", content: prompt }],
-      max_tokens: 512,
-    }),
-  });
-  const data = await resp.json();
-  return data.choices?.[0]?.message?.content?.trim() || "";
-}
-
 async function getOrCreateConversation(session_id, user_id) {
   let [rows] = await pool.query(
     "SELECT id FROM conversations WHERE session_id = ? AND user_id = ?",
@@ -367,64 +317,6 @@ function stripAIDownloadLinks(str = "") {
     .trim();
 }
 
-// ============================================================================
-// NEW: COMBINED REQUEST DETECTION HELPERS
-// ============================================================================
-
-/**
- * Detects if the user message contains both content generation and export intent
- * Example: "Explain blockchain and download as PDF"
- */
-function isCombinedRequest(message, hasExportIntent) {
-  if (!message || !hasExportIntent) return false;
-
-  // Content generation patterns - MORE COMPREHENSIVE
-  const contentPatterns = [
-    /^(explain|describe|tell me|what is|what are|how|why|compare|analyze|discuss)/i,
-    /\b(advantages?|disadvantages?|benefits?|drawbacks?|pros?|cons?)\b/i,
-    /\b(differences?|similarities|comparison|versus|vs\.?|compared to)\b/i,
-    /\b(list|create|write|generate|provide|give me|show me|make)\b/i,
-    /\b(summarize|outline|elaborate|define|detail|breakdown)\b/i,
-    /\b(bullet points?|table|chart|comparison table)\b/i,
-  ];
-
-  const hasContentIntent = contentPatterns.some((pattern) =>
-    pattern.test(message)
-  );
-
-  // Export patterns - Check if export keywords exist
-  const exportPatterns = [
-    /\b(download|export|save|convert|turn|make|give me|provide)\b.*?\b(as|into|in|to)\b.*?\b(pdf|word|docx?|excel|xlsx?|tsv|csv|ppt|pptx|txt|html|xml|md|markdown|zip|rar|7z|ods|odt|odp|rtf|ics|vcf|eml|msg|mbox|jpg|jpeg|png|gif|bmp|tiff)\b/i,
-    /\b(as|into|in|to)\b\s+(pdf|word|docx?|excel|xlsx?|tsv|csv|ppt|pptx|txt|html|xml|md|markdown)\b/i,
-    /\b(download|export|save)\b.*?\b(it|this|that|the)\b.*?\b(as|into|in|to)\b/i,
-    /\b(into|as|in|to)\b\s+(tsv|csv|excel|pdf|word)\b/i,
-  ];
-
-  const hasExportPattern = exportPatterns.some((pattern) =>
-    pattern.test(message)
-  );
-
-  // Check if message has reasonable length (combined requests are typically longer)
-  const wordCount = message.split(/\s+/).length;
-  const hasReasonableLength = wordCount >= 5; // Reduced from 6 to 5
-
-  console.log("[COMBINED REQUEST CHECK]", {
-    hasContentIntent,
-    hasExportPattern,
-    hasExportIntent,
-    hasReasonableLength,
-    wordCount,
-    message: message.slice(0, 100),
-  });
-
-  // If we have content intent AND (export pattern OR export intent flag), it's combined
-  return (
-    hasContentIntent &&
-    (hasExportPattern || hasExportIntent) &&
-    hasReasonableLength
-  );
-}
-
 /**
  * Extracts the content generation part from a combined request
  * Removes export instructions to send clean query to AI
@@ -612,9 +504,10 @@ Please give a friendly, concise weather update, just like a human would in chat.
       const pureExport = isPureExportCommand(message);
 
       // FIX: Better combined request detection
-      const hasContentRequest = /^(explain|describe|tell|what|how|why|compare|list|create|write|generate|provide|give|show|make|summarize|outline|discuss|elaborate|define|detail|advantages|disadvantages|benefits|drawbacks|pros|cons|differences|similarities|comparison|versus|bullet|table|chart|get|find|search)/i.test(
-        message
-      );
+      const hasContentRequest =
+        /^(explain|describe|tell|what|how|why|compare|list|create|write|generate|provide|give|show|make|summarize|outline|discuss|elaborate|define|detail|advantages|disadvantages|benefits|drawbacks|pros|cons|differences|similarities|comparison|versus|bullet|table|chart|get|find|search)/i.test(
+          message
+        );
 
       const combinedRequest =
         doExport &&
@@ -632,145 +525,154 @@ Please give a friendly, concise weather update, just like a human would in chat.
       });
 
       // ===== FILE EXTRACTION WITH FORMAT TRACKING =====
-      let extractedText = "";
-      let importedFiles = [];
-      let originalFileFormat = null;
-      let originalFileName = null;
-      let structuredData = null;
-      let originalFilePath = null; 
- path
+    let extractedText = "";
+let importedFiles = [];
+let originalFileFormat = null;
+let originalFileName = null;
+let structuredData = null;
+let originalFilePath = null;
+let fileMetadata = {};
 
-     if (req.files && req.files.length > 0) {
+if (req.files && req.files.length > 0) {
   console.log("[CHAT] Processing", req.files.length, "uploaded file(s)");
 
   try {
-    originalFilePath = req.files[0].path;
-    originalFileName = req.files[0].originalname;
-    
-    const ext = path.extname(originalFileName).toLowerCase().replace('.', '');
-    originalFileFormat = ext;
+    for (const file of req.files) {
+      originalFilePath = file.path;
+      originalFileName = file.originalname;
 
-    console.log('[CHAT] Original file saved at:', originalFilePath);
-    console.log('[CHAT] Format:', originalFileFormat);
+      const ext = path
+        .extname(originalFileName)
+        .toLowerCase()
+        .replace(".", "");
+      originalFileFormat = ext;
 
-    // NO TEXT EXTRACTION HERE - AI will read file directly!
+      console.log("[CHAT] Importing file:", {
+        name: originalFileName,
+        format: ext,
+        size: file.size
+      });
 
+      // Use comprehensive importer
+      const importResult = await importFile(originalFilePath, ext);
+
+      if (importResult.success) {
+        extractedText += importResult.extractedText + "\n\n";
+        
+        // Store structured data if available
+        if (importResult.structuredData) {
+          structuredData = importResult.structuredData;
+        }
+        
+        // Store metadata
+        fileMetadata = importResult.metadata || {};
+        
+        console.log("[CHAT] ✓ Import successful:", {
+          format: importResult.format,
+          textLength: importResult.extractedText.length,
+          hasStructuredData: !!importResult.structuredData,
+          metadata: importResult.metadata
+        });
+        
+        importedFiles.push({
+          name: originalFileName,
+          format: ext,
+          extractedText: importResult.extractedText,
+          structuredData: importResult.structuredData,
+          metadata: importResult.metadata
+        });
+      } else {
+        console.error("[CHAT] Import failed:", importResult.error);
+        extractedText += `[Failed to import ${originalFileName}: ${importResult.error}]\n\n`;
+      }
+    }
   } catch (error) {
     console.error("[CHAT FILE ERROR]", error);
+    extractedText += `[Error processing uploaded files: ${error.message}]\n\n`;
   }
 }
 
-// ===== DOCUMENT MODIFICATION SECTION - FIXED =====
-if (originalFilePath && message) {
-  const modificationType = detectModificationType(message);
+      // ===== DOCUMENT MODIFICATION SECTION - FIXED =====
+      if (originalFilePath && message) {
+        const modificationType = detectModificationType(message);
 
-  if (modificationType !== 'analyze') {
-    console.log("[CHAT] Processing modification with AI direct read");
-
-    try {
-      const result = await modifyDocumentViaAIHTML({
-        originalFilePath: originalFilePath,
-        originalFormat: originalFileFormat || 'txt',
-        originalFileName: originalFileName || 'document',
-        userRequest: message,
-        sessionId: sessId,
-        OPENAI_API_KEY: OPENAI_API_KEY  // ✅ ADD THIS LINE
-      });
-
-      if (result.success) {
-        console.log('[CHAT] AI modification successful!');
-
-        // Read the modified file
-        const modifiedFileContent = await fs.promises.readFile(result.modifiedFilePath);
-        
-        // Generate clean filename
-        const baseFilename = originalFileName 
-          ? originalFileName.replace(/\.[^/.]+$/, '') 
-          : 'Modified_Document';
-        
-        const cleanBaseFilename = baseFilename
-          .replace(/\s+/g, '_')
-          .replace(/[^a-zA-Z0-9_-]/g, '');
-
-        const finalFileName = `${Date.now()}-${cleanBaseFilename}_modified.${originalFileFormat}`;
-        const finalFilePath = path.join(uploadDir, finalFileName);
-        
-        console.log('[FILE GENERATION]', {
-          originalFileName,
-          baseFilename,
-          cleanBaseFilename,
-          finalFileName,
-          finalFilePath
-        });
-        
-        // Copy modified file to uploads directory with proper name
-        await fs.promises.copyFile(result.modifiedFilePath, finalFilePath);
-
-        // Verify file exists
-        if (!fs.existsSync(finalFilePath)) {
-          throw new Error('Failed to create final file');
-        }
-
-        // Create download URL
-        const downloadUrl = `/uploads/${finalFileName}`;
-        
-        console.log('[DOWNLOAD URL]', {
-          downloadUrl,
-          fullUrl: `${BASE_URL}${downloadUrl}`,
-          fileExists: fs.existsSync(finalFilePath)
-        });
-
-        // Cleanup temporary files
-        try {
-          await fs.promises.unlink(originalFilePath); // Delete original upload
-          await fs.promises.unlink(result.modifiedFilePath); // Delete temp modified file
-          console.log('[CLEANUP] Temporary files removed successfully');
-        } catch (cleanupError) {
-          console.error('[CLEANUP ERROR]', cleanupError);
-        }
-
-        const methodNote = '<br/><em>✅ Modified using AI direct read pipeline!</em>';
-
-        const replyText = `✅ I've modified your document using AI!${methodNote}<br/><br/>📄 <strong>Download Modified Document:</strong><br/><a href="${BASE_URL}${downloadUrl}" target="_blank" rel="noopener noreferrer" download="${finalFileName}">${finalFileName}</a>`;
-
-        await saveMessage(
-          sessId,
-          id,
-          "bot",
-          replyText,
-          req.app.get("io")
-        );
-
-        if (user.role === "free") {
-          await pool.query(
-            "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
-            [id]
+        if (modificationType !== "analyze") {
+          console.log(
+            "[CHAT] Processing with direct modification (preserves all formatting)"
           );
+
+          try {
+            const result = await modifyDocumentDirectly(
+              originalFilePath,
+              message,
+              OPENAI_API_KEY,
+              {
+                originalFormat: originalFileFormat || "txt",
+                filename: originalFileName || "document",
+              }
+            );
+
+            if (result.success) {
+              console.log("[CHAT] ✓ Direct modification successful!");
+
+              // Generate clean filename
+              const baseFilename = originalFileName
+                ? originalFileName.replace(/\.[^/.]+$/, "")
+                : "Modified_Document";
+
+              const cleanBaseFilename = baseFilename
+                .replace(/\s+/g, "_")
+                .replace(/[^a-zA-Z0-9_-]/g, "");
+
+              const finalFileName = `${Date.now()}-${cleanBaseFilename}_modified.${originalFileFormat}`;
+              const finalFilePath = path.join(uploadDir, finalFileName);
+
+              // Copy to uploads directory
+              await fs.promises.copyFile(
+                result.modifiedFilePath,
+                finalFilePath
+              );
+
+              // Create download URL
+              const downloadUrl = `/uploads/${finalFileName}`;
+
+              // Cleanup temporary files
+              try {
+                await fs.promises.unlink(originalFilePath);
+                await fs.promises.unlink(result.modifiedFilePath);
+              } catch (e) {}
+
+              const replyText = `✅ I've modified your document!
+
+📄 **Download Modified Document:**
+<a href="${BASE_URL}${downloadUrl}" target="_blank" download="${finalFileName}">${finalFileName}</a>
+`;
+
+              await saveMessage(
+                sessId,
+                id,
+                "bot",
+                replyText,
+                req.app.get("io")
+              );
+
+              if (user.role === "free") {
+                await pool.query(
+                  "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
+                  [id]
+                );
+              }
+
+              return res.json({ reply: replyText });
+            }
+          } catch (error) {
+            console.error("[MODIFICATION ERROR]", error);
+            return res.json({
+              reply: `Sorry, error: ${error.message}`,
+            });
+          }
         }
-
-        return res.json({ reply: replyText });
-      } else {
-        throw new Error(result.error || 'AI modification failed');
       }
-
-    } catch (modifyError) {
-      console.error('[MODIFY ERROR]', modifyError);
-      
-      // Cleanup on error
-      if (originalFilePath) {
-        try {
-          await fs.promises.unlink(originalFilePath);
-        } catch (e) {
-          console.error("[CLEANUP ERROR]", e);
-        }
-      }
-
-      return res.json({
-        reply: `Sorry, I encountered an error while modifying your document: ${modifyError.message}`
-      });
-    }
-  }
-}
       // CLEANUP: Delete uploaded files if not used for modification
       if (req.files && req.files.length > 0) {
         for (const file of req.files) {
@@ -1298,7 +1200,9 @@ router.post("/api/export/:format", authenticate, async (req, res) => {
   if (!conversationId)
     return res.status(400).json({ error: "Missing conversationId" });
 
-  const exportContent = await getOrCreateExportSnapshot(conversationId);
+  const exportContent = await getOrCreateEx
+
+  portSnapshot(conversationId);
   console.log("[EXPORT SNAPSHOT CONTENT]", exportContent.slice(0, 200));
 
   const format = req.params.format.toLowerCase();
@@ -1373,7 +1277,7 @@ router.post("/api/export/:format", authenticate, async (req, res) => {
       "Content-Disposition",
       `attachment; filename="${fileObj.name}"`
     );
-             
+
     return res.sendFile(filePath, (err) => {
       if (err) {
         console.error("[SENDFILE ERROR]", err);

@@ -1,6 +1,11 @@
 // chatPromptSuggestion.js
 
-export default function initChatPromptSuggestion({ inputEl, barEl, apiUrl = 'http://localhost:3000/api/suggest-prompt', minLength = 1 }) {
+export default function initChatPromptSuggestion({
+  inputEl,
+  barEl,
+  apiUrl = `${window.location.origin}/api/suggest-prompt`,
+  minLength = 1
+}) {
   let lastSuggestedPrompt = '';
   let lastPromptSent = '';
   let suggestController = null;
@@ -20,7 +25,8 @@ export default function initChatPromptSuggestion({ inputEl, barEl, apiUrl = 'htt
       barEl.style.display = 'none';
       return;
     }
-    if (msg === lastPromptSent) return; // avoid duplicate requests
+
+    if (msg === lastPromptSent) return;
     lastPromptSent = msg;
 
     // Cancel previous fetch if running
@@ -35,20 +41,26 @@ export default function initChatPromptSuggestion({ inputEl, barEl, apiUrl = 'htt
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: msg }),
-        signal: suggestController.signal,
+        signal: suggestController.signal
       });
+
       const data = await res.json();
+
       if (data.suggestion) {
         lastSuggestedPrompt = data.suggestion;
         barEl.innerHTML = `
           <span style="font-size:1em;">💡 AI Suggestion:<br>
-          <em style="cursor:pointer;color:#2563eb;text-decoration:underline;" id="prompt-suggestion-link">
-            ${data.suggestion.replace(/"/g, "&quot;")}
-          </em></span>
+            <em
+              style="cursor:pointer;color:#2563eb;text-decoration:underline;"
+              id="prompt-suggestion-link"
+            >
+              ${data.suggestion.replace(/"/g, "&quot;")}
+            </em>
+          </span>
         `;
         barEl.style.display = '';
-        // Click to use suggestion
-        document.getElementById('prompt-suggestion-link').onclick = function() {
+
+        document.getElementById('prompt-suggestion-link').onclick = function () {
           inputEl.value = lastSuggestedPrompt;
           inputEl.focus();
           barEl.style.display = 'none';
@@ -57,7 +69,7 @@ export default function initChatPromptSuggestion({ inputEl, barEl, apiUrl = 'htt
         barEl.style.display = 'none';
       }
     } catch (err) {
-      if (err.name !== "AbortError") {
+      if (err.name !== 'AbortError') {
         barEl.innerHTML = `<span style="color:#e00;">(AI failed to suggest. Try again.)</span>`;
       }
     }
@@ -65,6 +77,8 @@ export default function initChatPromptSuggestion({ inputEl, barEl, apiUrl = 'htt
 
   inputEl.addEventListener('input', showAISuggestion);
   inputEl.addEventListener('blur', function () {
-    setTimeout(() => { barEl.style.display = 'none'; }, 100);
+    setTimeout(() => {
+      barEl.style.display = 'none';
+    }, 100);
   });
 }
