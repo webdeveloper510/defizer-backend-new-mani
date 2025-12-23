@@ -1,2 +1,8 @@
-.env
+# dependencies
 node_modules/
+
+# env files
+defizer-backend/.env
+
+# uploads (IMPORTANT)
+defizer-backend/uploads/
