@@ -1189,7 +1189,7 @@ async function exportWithCustomHandler(content, outputPath, format, fileName) {
       const tempXlsxPath = outputPath.replace('.ods', '.temp.xlsx');
       try {
         await exportToExcel(content, tempXlsxPath, 'xlsx');
-        const workbook = XLSX.readFile(tempXlsxPath);
+        const workbook = XLSX.readFile(tempXlsaxPath);
         XLSX.writeFile(workbook, outputPath, { 
           bookType: 'ods',
           compression: true 

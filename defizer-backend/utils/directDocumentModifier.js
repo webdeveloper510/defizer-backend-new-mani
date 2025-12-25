@@ -3,6 +3,12 @@ const fsSync = require("fs");
 const path = require("path");
 const PizZip = require("pizzip");
 const XLSX = require("xlsx");
+const AdmZip = require("adm-zip"); 
+const { PDFDocument } = require('pdf-lib'); 
+const pdfParse = require('pdf-parse'); 
+const { DOMParser, XMLSerializer } = require("@xmldom/xmldom");
+const PptxGenJS = require('pptxgenjs');
+const Pizzip = require('pizzip');
 const {
   extractTextForAnalysis,
   getModificationInstructions,
@@ -10,9 +16,8 @@ const {
 } = require("./documentAnalyzer");
 
 const MODIFIABLE_FORMATS = {
-  direct: ["docx", "xlsx", "xls", "txt", "md", "markdown",],
+  direct: ["docx", "xlsx", "xls", "txt", "md", "markdown", "odt", "odp", "ods"],
 
-  // ✅ TEXT-BASED (Simple find-replace)
   textBased: [
     "csv",
     "tsv",
@@ -27,10 +32,8 @@ const MODIFIABLE_FORMATS = {
     "mbox",
   ],
 
-  // ⚠️ COMPLEX (Extract → Modify → Export)
-  complex: ["pdf", "pptx", "ppt", "odp","odt"],
+  complex: ["pdf", "pptx", "ppt"],
 
-  // ❌ NOT MODIFIABLE (Images, media, archives)
   notModifiable: [
     "jpg",
     "jpeg",
@@ -60,9 +63,197 @@ function isFormatModifiable(format) {
     MODIFIABLE_FORMATS.complex.includes(format)
   );
 }
+
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+async function extractTextWithPositions(pdfBytes, pageIndex) {
+  const data = await pdfParse(pdfBytes);
+  return [];
+}
+
+function findTextOccurrences(textContent, findText) {
+  const occurrences = [];
+  return occurrences;
+}
+
+function escapeXml(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function decodeXml(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+async function modifyPdfPreserveFormatting(filePath, changes, options = {}) {
+  const { filename } = options;
+  
+  console.log('[PDF MODIFIER] Starting with format preservation:', filename);
+  
+  try {
+    // Read the PDF
+    const existingPdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(existingPdfBytes);
+    
+    const pages = pdfDoc.getPages();
+    let modificationsApplied = 0;
+    
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      const page = pages[pageIndex];
+      
+      const textContent = await extractTextWithPositions(existingPdfBytes, pageIndex);
+      
+      for (const change of changes) {
+        const findText = change.find.trim();
+        const replaceText = change.replace.trim();
+        
+        const occurrences = findTextOccurrences(textContent, findText);
+        
+        for (const occurrence of occurrences) {
+          page.drawRectangle({
+            x: occurrence.x,
+            y: occurrence.y,
+            width: occurrence.width,
+            height: occurrence.height,
+            color: rgb(1, 1, 1), 
+          });
+          
+          page.drawText(replaceText, {
+            x: occurrence.x,
+            y: occurrence.y,
+            size: occurrence.fontSize,
+            font: await pdfDoc.embedFont(StandardFonts.Helvetica), 
+            color: rgb(0, 0, 0),
+          });
+          
+          modificationsApplied++;
+          console.log(`[PDF] ✓ Replaced on page ${pageIndex + 1}:`, findText);
+        }
+      }
+    }
+    
+    if (modificationsApplied === 0) {
+      return {
+        success: false,
+        error: 'No matching text found in PDF'
+      };
+    }
+        const modifiedPdfBytes = await pdfDoc.save();
+    const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+    await fs.writeFile(outputPath, modifiedPdfBytes);
+    
+    console.log(`[PDF] ✓ Successfully modified ${modificationsApplied} locations`);
+    
+    return {
+      success: true,
+      modifiedFilePath: outputPath,
+      originalFormat: 'pdf',
+      metadata: {
+        method: 'pdf_native_modification',
+        changesApplied: modificationsApplied,
+        preservedStructure: true,
+        preservedFormatting: true
+      }
+    };
+    
+  } catch (error) {
+    console.error('[PDF MODIFIER ERROR]', error);
+        console.log('[PDF] Falling back to extract-modify-export method...');
+    return await modifyComplexFormat(filePath, userRequest, OPENAI_API_KEY, options);
+  }
+}
+async function modifyPptxPreserveFormatting(filePath, changes, options = {}) {
+  const { filename } = options;
+  
+  console.log('[PPTX MODIFIER] Starting with format preservation:', filename);
+  
+  try {
+    const content = await fs.readFile(filePath);
+    const zip = new Pizzip(content);
+    
+    let modificationsApplied = 0;
+    
+    const slideFiles = Object.keys(zip.files).filter(name => 
+      name.match(/ppt\/slides\/slide\d+\.xml$/)
+    );
+    
+    console.log(`[PPTX] Found ${slideFiles.length} slides`);
+    
+    for (const slideFile of slideFiles) {
+      let slideXml = zip.files[slideFile].asText();
+      const originalXml = slideXml;
+      
+      for (const change of changes) {
+        const findText = change.find.trim();
+        const replaceText = change.replace.trim();
+                const escapedFind = escapeXml(findText);
+        const escapedReplace = escapeXml(replaceText);
+                const textTagRegex = /(<a:t[^>]*>)([^<]+)(<\/a:t>)/g;
+        
+        slideXml = slideXml.replace(textTagRegex, (match, openTag, textContent, closeTag) => {
+          const decoded = decodeXml(textContent);
+          
+          if (decoded.includes(findText)) {
+            const replaced = decoded.replace(
+              new RegExp(escapeRegExp(findText), 'g'),
+              replaceText
+            );
+            modificationsApplied++;
+            return openTag + escapeXml(replaced) + closeTag;
+          }
+          
+          return match;
+        });
+      }
+            if (slideXml !== originalXml) {
+        zip.file(slideFile, slideXml);
+        console.log(`[PPTX] ✓ Modified:`, slideFile);
+      }
+    }
+    
+    if (modificationsApplied === 0) {
+      return {
+        success: false,
+        error: 'No matching text found in presentation'
+      };
+    }
+        const modifiedBuffer = zip.generate({ type: 'nodebuffer' });
+    const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+    await fs.writeFile(outputPath, modifiedBuffer);
+    
+    console.log(`[PPTX] ✓ Successfully modified ${modificationsApplied} locations`);
+    
+    return {
+      success: true,
+      modifiedFilePath: outputPath,
+      originalFormat: 'pptx',
+      metadata: {
+        method: 'pptx_native_modification',
+        changesApplied: modificationsApplied,
+        preservedStructure: true,
+        preservedFormatting: true,
+        preservedSlides: true
+      }
+    };
+    
+  } catch (error) {
+    console.error('[PPTX MODIFIER ERROR]', error);
+        console.log('[PPTX] Falling back to extract-modify-export method...');
+    return await modifyComplexFormat(filePath, userRequest, OPENAI_API_KEY, options);
+  }
+}
+
 function getModificationStrategy(format) {
   format = format.toLowerCase().replace(".", "");
 
@@ -97,10 +288,8 @@ async function modifyDocumentEnhanced(
     isModifiable: strategy !== "NOT_SUPPORTED",
   });
 
-  // Route to appropriate handler
   switch (strategy) {
     case "DIRECT":
-      // Use your existing code for DOCX, XLSX, TXT
       return await modifyDocumentDirectly(
         filePath,
         userRequest,
@@ -109,7 +298,6 @@ async function modifyDocumentEnhanced(
       );
 
     case "TEXT_BASED":
-      // Handle CSV, TSV, HTML, XML, JSON, etc.
       return await modifyTextBasedFormat(
         filePath,
         userRequest,
@@ -118,7 +306,6 @@ async function modifyDocumentEnhanced(
       );
 
     case "EXTRACT_MODIFY_EXPORT":
-      // Handle PDF, PPTX (extract → modify → export)
       return await modifyComplexFormat(
         filePath,
         userRequest,
@@ -156,10 +343,7 @@ async function modifyDocumentDirectly(
   });
 
   try {
-    // Extract text
     const documentText = await extractTextForAnalysis(filePath, originalFormat);
-
-    // Get AI instructions
     const instructions = await getModificationInstructions(
       documentText,
       userRequest,
@@ -172,8 +356,6 @@ async function modifyDocumentDirectly(
         error: instructions.explanation || "No modifications identified by AI",
       };
     }
-
-    // Validate changes
     const { validated, errors } = validateChanges(
       documentText,
       instructions.changes
@@ -185,8 +367,6 @@ async function modifyDocumentDirectly(
         error: "No valid changes could be applied (text not found in document)",
       };
     }
-
-    // Apply changes based on format
     switch (originalFormat.toLowerCase()) {
       case "docx":
         return await modifyDocxWithLists(filePath, validated, options);
@@ -199,9 +379,13 @@ async function modifyDocumentDirectly(
       case "md":
       case "markdown":
         return await modifyTextDirectly(filePath, validated, options);
+      case "odt":
+      case "odp":
+      case "ods":
+        return await modifyOpenDocument(filePath, validated, options);
 
       default:
-        throw new Error(
+        return new Error(
           `Format ${originalFormat} not handled in direct modifier`
         );
     }
@@ -212,6 +396,225 @@ async function modifyDocumentDirectly(
       error: error.message,
     };
   }
+}
+async function modifyOpenDocument(filePath, changes, options = {}) {
+  const { originalFormat, filename } = options;
+  
+  console.log('[OPENDOC] Modifying', originalFormat.toUpperCase(), ':', filename);
+  
+  try {
+    const zip = new AdmZip(filePath);
+    
+    // Get all XML files that might contain text
+    const xmlFiles = ['content.xml', 'styles.xml'];
+    let modificationsApplied = 0;
+    
+    for (const xmlFileName of xmlFiles) {
+      const entry = zip.getEntry(xmlFileName);
+      if (!entry) {
+        console.log(`[OPENDOC] ${xmlFileName} not found, skipping...`);
+        continue;
+      }
+      
+      let xmlContent = entry.getData().toString('utf8');
+      const originalXml = xmlContent;
+            for (const change of changes) {
+        const findText = change.find.trim();
+        const replaceText = change.replace.trim();
+        
+        const escapedFind = escapeXml(findText);
+        const escapedReplace = escapeXml(replaceText);
+        
+        if (xmlContent.includes(escapedFind)) {
+          const regex = new RegExp(escapeRegExp(escapedFind), 'g');
+          xmlContent = xmlContent.replace(regex, escapedReplace);
+          modificationsApplied++;
+          console.log(`[OPENDOC] ✓ Applied in ${xmlFileName}:`, change.reason || findText);
+        } else {
+          if (xmlContent.includes(findText)) {
+            const regex = new RegExp(escapeRegExp(findText), 'g');
+            xmlContent = xmlContent.replace(regex, replaceText);
+            modificationsApplied++;
+            console.log(`[OPENDOC] ✓ Applied (unescaped) in ${xmlFileName}:`, change.reason || findText);
+          }
+        }
+      }
+            if (xmlContent !== originalXml) {
+        zip.updateFile(xmlFileName, Buffer.from(xmlContent, 'utf8'));
+        console.log(`[OPENDOC] Updated ${xmlFileName}`);
+      }
+    }
+    
+    if (modificationsApplied === 0) {
+      console.error('[OPENDOC] No matching text found in document');
+      return {
+        success: false,
+        error: 'No matching text found in document. Please check if the text exists.'
+      };
+    }
+    
+    const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+    zip.writeZip(outputPath);
+    
+    console.log(`[OPENDOC] ✓ Successfully modified ${modificationsApplied} locations`);
+    console.log(`[OPENDOC] ✓ Saved to: ${outputPath}`);
+    
+    return {
+      success: true,
+      modifiedFilePath: outputPath,
+      originalFormat,
+      metadata: {
+        method: 'opendocument_xml_modification',
+        changesApplied: modificationsApplied,
+        preservedStructure: true,
+        preservedFormatting: true
+      }
+    };
+    
+  } catch (error) {
+    console.error('[OPENDOC ERROR]', error);
+    return {
+      success: false,
+      error: `OpenDocument modification failed: ${error.message}`
+    };
+  }
+}
+
+async function modifyOpenDocumentAdvanced(filePath, changes, options = {}) {
+  const { originalFormat, filename } = options;
+  
+  console.log('[OPENDOC ADVANCED] Modifying', originalFormat.toUpperCase(), ':', filename);
+  
+  try {
+    const zip = new AdmZip(filePath);
+    const contentEntry = zip.getEntry('content.xml');
+    
+    if (!contentEntry) {
+      throw new Error('content.xml not found in OpenDocument file');
+    }
+    
+    let contentXml = contentEntry.getData().toString('utf8');
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(contentXml, 'text/xml');
+    
+    let modificationsApplied = 0;
+    
+    // Get all text elements based on format
+    const textTags = {
+      odt: ['text:p', 'text:h', 'text:span'],
+      odp: ['text:p', 'text:span'],
+      ods: ['text:p', 'table:table-cell']
+    };
+    
+    const tags = textTags[originalFormat.toLowerCase()] || textTags.odt;
+    
+    for (const tag of tags) {
+      const elements = xmlDoc.getElementsByTagName(tag);
+      
+      for (let i = 0; i < elements.length; i++) {
+        const element = elements[i];
+        
+        for (const change of changes) {
+          if (modifyElementText(element, change.find.trim(), change.replace.trim())) {
+            modificationsApplied++;
+            console.log(`[OPENDOC ADVANCED] ✓ Modified <${tag}>:`, change.reason || change.find);
+          }
+        }
+      }
+    }
+    
+    if (modificationsApplied === 0) {
+      return {
+        success: false,
+        error: 'No matching text found in document'
+      };
+    }
+    
+    // Serialize back to XML
+    const serializer = new XMLSerializer();
+    const modifiedXml = serializer.serializeToString(xmlDoc);
+    
+    // Update ZIP
+    zip.updateFile('content.xml', Buffer.from(modifiedXml, 'utf8'));
+    
+    // Also check and update styles.xml if needed
+    const stylesEntry = zip.getEntry('styles.xml');
+    if (stylesEntry) {
+      let stylesXml = stylesEntry.getData().toString('utf8');
+      const stylesDoc = parser.parseFromString(stylesXml, 'text/xml');
+      
+      for (const tag of tags) {
+        const elements = stylesDoc.getElementsByTagName(tag);
+        
+        for (let i = 0; i < elements.length; i++) {
+          const element = elements[i];
+          
+          for (const change of changes) {
+            if (modifyElementText(element, change.find.trim(), change.replace.trim())) {
+              modificationsApplied++;
+            }
+          }
+        }
+      }
+      
+      const modifiedStyles = serializer.serializeToString(stylesDoc);
+      zip.updateFile('styles.xml', Buffer.from(modifiedStyles, 'utf8'));
+    }
+    
+    const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+    zip.writeZip(outputPath);
+    
+    console.log(`[OPENDOC ADVANCED] ✓ Successfully modified ${modificationsApplied} locations`);
+    
+    return {
+      success: true,
+      modifiedFilePath: outputPath,
+      originalFormat,
+      metadata: {
+        method: 'opendocument_dom_modification',
+        changesApplied: modificationsApplied,
+        preservedStructure: true,
+        preservedFormatting: true
+      }
+    };
+    
+  } catch (error) {
+    console.error('[OPENDOC ADVANCED ERROR]', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Recursively modifies text in XML element nodes
+ */
+function modifyElementText(element, findText, replaceText) {
+  let modified = false;
+  
+  if (element.childNodes) {
+    for (let i = 0; i < element.childNodes.length; i++) {
+      const node = element.childNodes[i];
+      
+      if (node.nodeType === 3) { // Text node
+        if (node.nodeValue && node.nodeValue.includes(findText)) {
+          node.nodeValue = node.nodeValue.replace(
+            new RegExp(escapeRegExp(findText), 'g'),
+            replaceText
+          );
+          modified = true;
+        }
+      } else {
+        // Recursive search in child elements
+        if (modifyElementText(node, findText, replaceText)) {
+          modified = true;
+        }
+      }
+    }
+  }
+  
+  return modified;
 }
 
 // ============================================================================
@@ -332,7 +735,8 @@ async function modifyComplexFormat(
   options = {}
 ) {
   const { originalFormat, filename } = options;
-const { exportFile } = require("../fileGenerators");
+  const { exportFile } = require("../fileGenerators");
+
   console.log("[COMPLEX MODIFIER]", { format: originalFormat, file: filename });
 
   try {
@@ -359,7 +763,7 @@ const { exportFile } = require("../fileGenerators");
       originalFormat
     );
 
-    // STEP 3: Export to same format
+    // STEP 3: Export back to original format
     console.log("[COMPLEX] Step 3: Exporting to", originalFormat);
     const exportResult = await exportFile(
       modifiedText,
@@ -372,8 +776,25 @@ const { exportFile } = require("../fileGenerators");
       throw new Error("Export failed");
     }
 
-    // Convert URL to file path
-    const outputPath = path.join(__dirname, "uploads", exportResult.name);
+    const exportedFilePath = path.join(
+      __dirname,
+      "..",
+      exportResult.url.replace(/^\//, "")
+    );
+
+    if (!fsSync.existsSync(exportedFilePath)) {
+      throw new Error(`Exported file not found: ${exportedFilePath}`);
+    }
+
+    const uploadDir = path.join(__dirname, "..", "uploads");
+    const finalFileName = `${Date.now()}-${filename.replace(
+      /\.[^/.]+$/,
+      ""
+    )}_modified.${originalFormat}`;
+    const outputPath = path.join(uploadDir, finalFileName);
+
+    await fs.copyFile(exportedFilePath, outputPath);
+    await fs.unlink(exportedFilePath);
 
     return {
       success: true,
@@ -382,7 +803,7 @@ const { exportFile } = require("../fileGenerators");
       metadata: {
         method: "extract_modify_export",
         preservedStructure: false,
-        note: `Original ${originalFormat.toUpperCase()} formatting may be lost. Content modified and re-exported.`,
+        note: `Original ${originalFormat.toUpperCase()} formatting may be partially lost.`,
       },
     };
   } catch (error) {
@@ -390,7 +811,6 @@ const { exportFile } = require("../fileGenerators");
     return {
       success: false,
       error: `Complex format modification failed: ${error.message}`,
-      recommendation: `Try exporting to DOCX first, then modify.`,
     };
   }
 }
@@ -451,6 +871,10 @@ OUTPUT THE MODIFIED CONTENT:`;
 
   return modified;
 }
+
+// ============================================================================
+// DOCX MODIFIER (EXISTING CODE)
+// ============================================================================
 
 async function modifyDocxWithLists(filePath, changes, options) {
   try {
@@ -691,7 +1115,7 @@ function extractTextFromParagraph(paragraphXml) {
   return text;
 }
 
-// Helper functions remain the same as before
+// Helper functions
 function escapeXml(text) {
   if (!text) return "";
   return String(text)
@@ -711,6 +1135,7 @@ function decodeXml(text) {
     .replace(/&apos;/g, "'")
     .replace(/&amp;/g, "&");
 }
+
 function parseListText(text) {
   const lines = text.split("\n");
   const listItems = [];
@@ -737,120 +1162,6 @@ function parseListText(text) {
   }
 
   return { heading, listItems, isNumbered };
-}
-
-function replaceSectionWithListSafe(
-  bodyContent,
-  findText,
-  heading,
-  listItems,
-  isNumbered
-) {
-  const paragraphs = extractParagraphsSafe(bodyContent);
-  let startIdx = -1,
-    endIdx = -1;
-  const normalizedFind = findText.replace(/\s+/g, " ").trim().toLowerCase();
-
-  for (let i = 0; i < paragraphs.length; i++) {
-    const normalizedText = paragraphs[i].text
-      .replace(/\s+/g, " ")
-      .toLowerCase();
-    if (normalizedText.includes(normalizedFind.slice(0, 100))) {
-      startIdx = i;
-      const lineCount = Math.min(findText.split("\n").length + 2, 10);
-      endIdx = Math.min(i + lineCount, paragraphs.length - 1);
-      break;
-    }
-  }
-
-  if (startIdx === -1) return { success: false, content: bodyContent };
-
-  const listXml = createWordListSafe(heading, listItems, isNumbered);
-  const beforeSection = paragraphs.slice(0, startIdx);
-  const afterSection = paragraphs.slice(endIdx + 1);
-  const newContent =
-    beforeSection.map((p) => p.xml).join("") +
-    listXml +
-    afterSection.map((p) => p.xml).join("");
-
-  return { success: true, content: newContent };
-}
-
-function extractParagraphsSafe(bodyContent) {
-  const paragraphs = [];
-  const paragraphRegex = /<w:p\b[^>]*>[\s\S]*?<\/w:p>/g;
-  let match;
-
-  while ((match = paragraphRegex.exec(bodyContent)) !== null) {
-    const pXml = match[0];
-    const textMatches = pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
-    const text = textMatches
-      .map((t) => {
-        const m = t.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
-        return m ? decodeXml(m[1]) : "";
-      })
-      .join("");
-
-    paragraphs.push({ xml: pXml, text: text.trim() });
-  }
-
-  return paragraphs;
-}
-
-function simpleTextReplaceSafe(bodyContent, findText, replaceText) {
-  const paragraphs = extractParagraphsSafe(bodyContent);
-  const normalizedFind = findText.replace(/\s+/g, " ").toLowerCase();
-  let modified = false;
-
-  const newParagraphs = paragraphs.map((para) => {
-    const normalizedText = para.text.replace(/\s+/g, " ").toLowerCase();
-
-    if (normalizedText.includes(normalizedFind.slice(0, 60))) {
-      modified = true;
-      let modifiedXml = para.xml;
-      const textRegex = /<w:t([^>]*)>([^<]*)<\/w:t>/g;
-
-      modifiedXml = modifiedXml.replace(textRegex, (match, attrs, content) => {
-        const decoded = decodeXml(content);
-        const newContent = decoded.replace(
-          new RegExp(
-            findText.split("\n")[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-            "i"
-          ),
-          replaceText.split("\n")[0]
-        );
-        return `<w:t${attrs}>${escapeXml(newContent)}</w:t>`;
-      });
-
-      return { ...para, xml: modifiedXml };
-    }
-    return para;
-  });
-
-  if (!modified) return bodyContent;
-  return newParagraphs.map((p) => p.xml).join("");
-}
-
-function createWordListSafe(heading, listItems, isNumbered = false) {
-  let xml = "";
-
-  if (heading) {
-    const headingLines = heading.split("\n").filter((l) => l.trim());
-    headingLines.forEach((line) => {
-      xml += `<w:p><w:pPr><w:pStyle w:val="Heading3"/></w:pPr><w:r><w:t xml:space="preserve">${escapeXml(
-        line
-      )}</w:t></w:r></w:p>`;
-    });
-  }
-
-  const numId = isNumbered ? "2" : "1";
-  listItems.forEach((item) => {
-    xml += `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr></w:pPr><w:r><w:t xml:space="preserve">${escapeXml(
-      item
-    )}</w:t></w:r></w:p>`;
-  });
-
-  return xml;
 }
 
 function createNumberingXml() {
@@ -882,8 +1193,13 @@ function createNumberingXml() {
 </w:numbering>`;
 }
 
+// ============================================================================
+// EXCEL MODIFIER (EXISTING CODE)
+// ============================================================================
+
 async function modifyExcelDirectly(filePath, changes, options = {}) {
   try {
+    const ExcelJS = require("exceljs");
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
 
@@ -939,8 +1255,6 @@ async function modifyExcelDirectly(filePath, changes, options = {}) {
     }
 
     const outputPath = filePath.replace(/(\.[^.]+)$/, "_modified$1");
-
-    // Preserve original export format
     if (options.originalFormat === "xls") {
       const tempXlsxPath = outputPath.replace(".xls", ".temp.xlsx");
       await workbook.xlsx.writeFile(tempXlsxPath);
@@ -948,7 +1262,7 @@ async function modifyExcelDirectly(filePath, changes, options = {}) {
       const wb = XLSX.readFile(tempXlsxPath);
       XLSX.writeFile(wb, outputPath, { bookType: "xls", compression: true });
 
-      fs.unlinkSync(tempXlsxPath);
+      await fs.unlink(tempXlsxPath);
     } else {
       await workbook.xlsx.writeFile(outputPath);
     }
@@ -966,111 +1280,6 @@ async function modifyExcelDirectly(filePath, changes, options = {}) {
   } catch (error) {
     console.error("[EXCEL MODIFY ERROR]", error);
     return { success: false, error: error.message };
-  }
-}
-async function exportXMLWithSameStructure(modifiedFilePath, newContent, outputPath) {
-  try {
-    // Read the modified XML to get its structure
-    const modifiedXML = await fs.readFile(modifiedFilePath, "utf-8");
-    
-    // Detect indentation from modified file
-    const lines = modifiedXML.split('\n');
-    let indent = '  '; // default 2 spaces
-    
-    for (const line of lines) {
-      const match = line.match(/^(\s+)</);
-      if (match) {
-        indent = match[1];
-        break;
-      }
-    }
-    
-    // Detect line break style
-    const lineBreak = modifiedXML.includes('\r\n') ? '\r\n' : '\n';
-    
-    // Build new XML with SAME structure
-    const contentLines = newContent.split('\n');
-    let xml = [];
-    let inList = false;
-    let listType = null;
-
-    xml.push('<?xml version="1.0" encoding="UTF-8"?>');
-    xml.push('<document>');
-    xml.push(indent + '<metadata>');
-    xml.push(indent + indent + `<created>${new Date().toISOString()}</created>`);
-    xml.push(indent + indent + '<generator>Defizer Export System</generator>');
-    xml.push(indent + '</metadata>');
-    xml.push(indent + '<content>');
-
-    for (let line of contentLines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-
-      // Headings
-      const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
-      if (headingMatch) {
-        if (inList) {
-          xml.push(indent + indent + '</list>');
-          inList = false;
-        }
-        const level = headingMatch[1].length;
-        xml.push(`${indent}${indent}<heading level="${level}">${escapeXml(headingMatch[2])}</heading>`);
-        continue;
-      }
-
-      // Bullet list
-      if (/^[-*+]\s+/.test(trimmed)) {
-        if (!inList) {
-          inList = true;
-          listType = 'bullet';
-          xml.push(`${indent}${indent}<list type="${listType}">`);
-        }
-        xml.push(`${indent}${indent}${indent}<item>${escapeXml(trimmed.replace(/^[-*+]\s+/, ''))}</item>`);
-        continue;
-      }
-
-      // Numbered list
-      if (/^\d+\.\s+/.test(trimmed)) {
-        if (!inList) {
-          inList = true;
-          listType = 'numbered';
-          xml.push(`${indent}${indent}<list type="${listType}">`);
-        }
-        xml.push(`${indent}${indent}${indent}<item>${escapeXml(trimmed.replace(/^\d+\.\s+/, ''))}</item>`);
-        continue;
-      }
-
-      // Close list
-      if (inList) {
-        xml.push(indent + indent + '</list>');
-        inList = false;
-      }
-
-      // Paragraph
-      xml.push(`${indent}${indent}<paragraph>${escapeXml(trimmed)}</paragraph>`);
-    }
-
-    if (inList) {
-      xml.push(indent + indent + '</list>');
-    }
-
-    xml.push(indent + '</content>');
-    xml.push('</document>');
-
-    // Write with SAME line breaks as modified file
-    await fs.writeFile(outputPath, xml.join(lineBreak), 'utf8');
-    
-    console.log(`[XML EXPORT] ✓ Used same structure from: ${modifiedFilePath}`);
-    
-    return {
-      success: true,
-      path: outputPath,
-      usedStructureFrom: modifiedFilePath
-    };
-
-  } catch (error) {
-    console.error("[XML EXPORT ERROR]", error);
-    throw error;
   }
 }
 
@@ -1110,35 +1319,11 @@ async function modifyTextDirectly(filePath, changes, options) {
     return { success: false, error: error.message };
   }
 }
-
-function escapeXml(text) {
-  if (!text) return "";
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function decodeXml(text) {
-  if (!text) return "";
-  return String(text)
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
-}
-
-// ============================================================================
-// EXPORTS
-// ============================================================================
-
 module.exports = {
   modifyDocumentEnhanced,
   isFormatModifiable,
   getModificationStrategy,
   MODIFIABLE_FORMATS,
-  exportXMLWithSameStructure
+  modifyOpenDocument,
+  modifyOpenDocumentAdvanced
 };
