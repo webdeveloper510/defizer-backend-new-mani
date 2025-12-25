@@ -12,11 +12,15 @@ const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 const { pool } = require("../db");
 const { authenticate } = require("../middleware/authenticate");
-const { modifyDocumentDirectly } = require("../utils/directDocumentModifier");
-
+const {
+  modifyDocumentEnhanced,
+  isFormatModifiable,
+} = require("../utils/directDocumentModifier");
+const { detectModificationType } = require("../documentProcessor");
 // ===== UPDATED IMPORT - Use universal exportFile =====
 const { exportFile, cleanExportContent } = require("../fileGenerators");
 const { importFile } = require("../fileImportors");
+const { getOrCreateExportSnapshot } = require("../utils/exportSnapshot");
 const {
   latestWebSearch,
   extractReadableContent,
@@ -25,10 +29,6 @@ const { generateExportTitle } = require("../utils/generateExportTitle");
 const { scrapePageGeneral } = require("../utils/scrapePageGeneral");
 const { getWeather } = require("../utils/weather");
 const { callOpenAI } = require("../services/openAi.service");
-const {
-  processDocumentModification,
-  detectModificationType,
-} = require("../documentProcessor");
 // ==== Engine imports and mappings ====
 const businessEngine = require("../engines/business");
 const astrologyEngine = require("../engines/astrology");
@@ -48,13 +48,12 @@ const wellbeingEngine = require("../engines/wellbeing");
 const researchSkillsEngine = require("../engines/researchSkills");
 
 const {
-  isPureExportCommand,
-  looksLikeExportLink,
-  buildAggregatedAssistantContent,
   pickContentForExport,
   resolveExportType,
   classifyExportIntentWithGPT,
   getExportHtmlFromContent,
+  hasContentRequest,
+  detectDocumentIntent
 } = require("../utils/helpers");
 
 const { detectExportIntent } = require("../utils/detectExportIntent.js");
@@ -110,6 +109,422 @@ const upload = multer({ storage });
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
+async function getAIResponse(
+  message,
+  messageHistory,
+  extractedText,
+  companyName,
+  location,
+  industry
+) {
+  console.log("[AI FLOW] Preparing normal AI response...");
+
+  const { engineKeys, webSearch: gptWebSearch } = await classifyEnginesWithGPT(
+    message
+  );
+
+  let webResults = "";
+  if (gptWebSearch || shouldSearchWeb(message, extractedText)) {
+    console.log("[AI FLOW] Performing web search...");
+    let freshResults = [];
+    try {
+      freshResults = await latestWebSearch(message, 5, true);
+    } catch (e) {
+      console.error("[AI FLOW] Web search error:", e);
+    }
+
+    let extractsAdded = 0;
+    if (freshResults.length) {
+      webResults = `Web search results (latest, as of ${new Date()
+        .toISOString()
+        .slice(0, 10)}):\n`;
+      for (let idx = 0; idx < freshResults.length; idx++) {
+        const r = freshResults[idx];
+        if (idx < 3 && r.link && r.link.startsWith("http")) {
+          let pageExtract = await extractReadableContent(r.link);
+          if (pageExtract && pageExtract.trim().length > 30) {
+            extractsAdded++;
+            pageExtract = pageExtract.slice(0, 1800);
+            webResults += `\n${idx + 1}. ${r.title}\n${r.snippet}\n[Source](${
+              r.link
+            })\nExtract:\n${pageExtract}\n`;
+          }
+        }
+      }
+      if (extractsAdded === 0) {
+        webResults =
+          "No usable web data found in top results. Try another question.";
+      } else {
+        webResults += "\nReferences:\n";
+        let refNum = 1;
+        for (let idx = 0; idx < freshResults.length; idx++) {
+          if (
+            idx < 3 &&
+            freshResults[idx].link &&
+            freshResults[idx].link.startsWith("http")
+          ) {
+            webResults += `[${refNum}] ${freshResults[idx].link}\n`;
+            refNum++;
+          }
+        }
+      }
+    }
+  }
+
+  const strictCitationRules = `
+RULES FOR ANSWERING:
+- Only answer using factual info in the EXTRACTED PAGE CONTENT below.
+- If content does not answer query, say: "I could not find a direct answer."
+- Always quote extracts and show source inline.
+${webResults}
+`;
+
+  const combinedPrompt =
+    strictCitationRules +
+    buildCombinedPrompt({
+      engineKeys,
+      message,
+      extractedText,
+      companyName,
+      location,
+      industry,
+      webResults: "",
+    });
+
+  const todayUS = new Date().toLocaleDateString("en-US");
+  const dateSystemMsg = `Today's date is: ${todayUS}. Always use this as current date.`;
+
+  const gptMessages = [
+    { role: "system", content: `${dateSystemMsg}\n\n${combinedPrompt}` },
+    ...messageHistory.map((m) => ({
+      role: m.sender === "user" ? "user" : "assistant",
+      content: m.message,
+    })),
+    { role: "user", content: message },
+  ];
+
+  console.log("[AI FLOW] Sending request to OpenAI...");
+  const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages: gptMessages,
+    }),
+  });
+
+  const aiData = await aiResponse.json();
+  const finalOutput =
+    aiData.choices?.[0]?.message?.content || "No response from AI.";
+  console.log("[AI FLOW] AI response received");
+
+  return finalOutput;
+}
+async function handlePureExport(
+  allMessages,
+  messageHistory,
+  userMessage,
+  sessId,
+  exportType
+) {
+  console.log("[EXPORT] Handling pure export...");
+  let exportContent = pickContentForExport({
+    allMessages,
+    finalOutput: "",
+    userMessage,
+    isPureExport: true,
+  });
+
+  if (!exportContent) {
+    console.log("[EXPORT] No exportable content found");
+    return "Sorry, no exportable content found in conversation.";
+  }
+
+  const exportHtmlMessages = await getExportHtmlFromContent(exportContent);
+  let getDownloadableData = await callOpenAI(exportHtmlMessages);
+
+  try {
+    getDownloadableData = JSON.parse(getDownloadableData);
+  } catch (e) {
+    console.error("[EXPORT] JSON parse failed:", e);
+    return "Unable to produce the result. Please try again.";
+  }
+
+  if (!getDownloadableData.export) {
+    return "No exportable content found in conversation.";
+  }
+
+  exportContent = stripAIDownloadLinks(getDownloadableData.export);
+  exportContent = cleanExportContent(exportContent);
+
+  let aiTitle = "Defizer Report";
+  try {
+    aiTitle = await generateExportTitle(messageHistory, exportContent);
+    if (!aiTitle || aiTitle.length < 3) aiTitle = "Defizer Report";
+  } catch (e) {
+    console.error("[EXPORT TITLE ERROR]", e);
+  }
+
+  let fileObj = null;
+  try {
+    fileObj = await exportFile(exportContent, sessId, aiTitle, exportType);
+  } catch (exportErr) {
+    console.error("[EXPORT ERROR]", exportErr);
+    return "Could not generate export file.";
+  }
+
+  const replyText = fileObj?.url
+    ? `I created your file.<br/><a href="${BASE_URL}${fileObj.url}" target="_blank" download>${fileObj.name}</a>`
+    : "I created your file but download link failed.";
+
+  console.log("[EXPORT] Pure export completed");
+  return replyText;
+}
+async function handleCombinedRequest(
+  contentRequest,
+  extractedText,
+  messageHistory,
+  sessId,
+  user,
+  exportType,
+  companyName,
+  location,
+  industry,
+  req
+) {
+  console.log("[COMBINED] Generating content + export...");
+  console.log("[COMBINED] User info:", { userId: user?.id, sessId }); // ✅ DEBUG LOG
+
+  // ✅ ADD VALIDATION
+  if (!user || !user.id) {
+    console.error("[COMBINED] ERROR: user or user.id is missing", user);
+    throw new Error("User information is missing");
+  }
+
+  const { engineKeys, webSearch: gptWebSearch } = await classifyEnginesWithGPT(
+    contentRequest
+  );
+
+  let webResults = "";
+  if (gptWebSearch || shouldSearchWeb(contentRequest, extractedText)) {
+    console.log("[COMBINED] Performing web search for combined request...");
+    let freshResults = [];
+    try {
+      freshResults = await latestWebSearch(contentRequest, 5, true);
+    } catch (e) {
+      console.error("[COMBINED] Web search error:", e);
+      // ✅ Don't fail the entire request if search fails - continue without it
+    }
+
+    let extractsAdded = 0;
+    if (freshResults.length) {
+      webResults = `Web search results (latest, ${new Date()
+        .toISOString()
+        .slice(0, 10)}):\n`;
+      for (let idx = 0; idx < freshResults.length; idx++) {
+        const r = freshResults[idx];
+        if (idx < 3 && r.link && r.link.startsWith("http")) {
+          let pageExtract = await extractReadableContent(r.link);
+          if (pageExtract?.trim().length > 30) {
+            extractsAdded++;
+            pageExtract = pageExtract.slice(0, 1800);
+            webResults += `\n${idx + 1}. ${r.title}\n${r.snippet}\n[Source](${
+              r.link
+            })\nExtract:\n${pageExtract}\n`;
+          }
+        }
+      }
+    }
+  }
+
+  const combinedPrompt = buildCombinedPrompt({
+    engineKeys,
+    message: contentRequest,
+    extractedText,
+    companyName,
+    location,
+    industry,
+    webResults,
+  });
+
+  const todayUS = new Date().toLocaleDateString("en-US");
+  const dateSystemMsg = `Today's date is: ${todayUS}.`;
+
+  const gptMessages = [
+    { role: "system", content: `${dateSystemMsg}\n\n${combinedPrompt}` },
+    ...messageHistory.map((m) => ({
+      role: m.sender === "user" ? "user" : "assistant",
+      content: m.message,
+    })),
+    { role: "user", content: contentRequest },
+  ];
+
+  console.log("[COMBINED] Sending request to OpenAI...");
+  const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({ model: "gpt-4o", messages: gptMessages }),
+  });
+
+  const aiData = await aiResponse.json();
+  let finalOutput =
+    aiData.choices?.[0]?.message?.content || "No response from AI.";
+
+  // ✅ ADD TRY-CATCH around saveMessage
+  try {
+    console.log(
+      "[COMBINED] Saving message with userId:",
+      user.id,
+      "sessId:",
+      sessId
+    );
+    await saveMessage(sessId, user.id, "bot", finalOutput, req.app.get("io"));
+    console.log("[COMBINED] Message saved successfully");
+  } catch (saveError) {
+    console.error("[COMBINED] Failed to save message:", saveError);
+    // Continue anyway - export generation is still possible
+  }
+
+  // Generate export file
+  let exportContent = stripAIDownloadLinks(finalOutput);
+  exportContent = cleanExportContent(exportContent);
+  const aiTitle = contentRequest.split(" ").slice(0, 6).join(" ");
+  let fileObj = null;
+  try {
+    fileObj = await exportFile(exportContent, sessId, aiTitle, exportType);
+  } catch (e) {
+    console.error("[COMBINED EXPORT ERROR]", e);
+  }
+
+  const replyText = fileObj?.url
+    ? `${finalOutput}<br/><br/>📄 Download: <a href="${BASE_URL}${fileObj.url}" target="_blank" download>${fileObj.name}</a>`
+    : finalOutput + "<br/><br/><em>Note: File export failed.</em>";
+
+  console.log("[COMBINED] Combined request completed");
+  return replyText;
+}
+async function handleDocumentModification(
+  file,
+  userMessage,
+  sessId,
+  user,
+  req
+) {
+  console.log("[DOC MOD] Starting modification for file:", file.originalname);
+
+  const originalFilePath = file.path;
+  const originalFileName = file.originalname;
+  const originalFileFormat = path
+    .extname(originalFileName)
+    .replace(".", "")
+    .toLowerCase();
+
+  // Check if format is modifiable
+  if (!isFormatModifiable(originalFileFormat)) {
+    console.log("[DOC MOD] File format not modifiable:", originalFileFormat);
+    return {
+      success: false,
+      reply: `⚠️ The format **${originalFileFormat.toUpperCase()}** does not support modification. Export to DOCX, TXT, or CSV first.`,
+    };
+  }
+
+  try {
+    // Detect if this is a modification request
+    const modificationType = await detectModificationType(userMessage);
+    if (modificationType === "analyze") {
+      console.log(
+        "[DOC MOD] Modification type is 'analyze', skipping changes."
+      );
+      return {
+        success: false, // Don't block - let normal AI flow handle it
+        reply: null,
+      };
+    }
+
+    console.log(
+      `[DOC MOD] Modifying file (${originalFileFormat.toUpperCase()})...`
+    );
+
+    const result = await modifyDocumentEnhanced(
+      originalFilePath,
+      userMessage,
+      OPENAI_API_KEY,
+      {
+        originalFormat: originalFileFormat,
+        filename: originalFileName || "document",
+      }
+    );
+
+    if (!result.success) {
+      console.error("[DOC MOD] Modification failed:", result.error);
+      return {
+        success: false,
+        reply: `⚠️ Unable to modify document. Reason: ${result.error}`,
+      };
+    }
+
+    // Generate unique filename for modified file
+    const baseFilename = originalFileName
+      .replace(/\.[^/.]+$/, "")
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9_-]/g, "");
+    const finalFileName = `${Date.now()}-${baseFilename}_modified.${originalFileFormat}`;
+    const finalFilePath = path.join(uploadDir, finalFileName);
+
+    // Copy modified file to final location
+    await fs.promises.copyFile(result.modifiedFilePath, finalFilePath);
+
+    // Clean up temporary files
+    try {
+      await fs.promises.unlink(originalFilePath);
+    } catch (e) {
+      console.error("[DOC MOD] Failed to delete original:", e.message);
+    }
+    try {
+      await fs.promises.unlink(result.modifiedFilePath);
+    } catch (e) {
+      console.error(
+        "[DOC MOD] Failed to delete temp modified file:",
+        e.message
+      );
+    }
+
+    const downloadUrl = `/uploads/${finalFileName}`;
+    const replyText = `✅ Modified **${originalFileFormat.toUpperCase()}** document!\n📄 Download: <a href="${BASE_URL}${downloadUrl}" target="_blank" download="${finalFileName}">${finalFileName}</a>${
+      result.metadata?.note ? `\n⚠️ Note: ${result.metadata.note}` : ""
+    }`;
+
+    console.log("[DOC MOD] Modification completed:", finalFileName);
+
+    // Save message to database
+    await saveMessage(sessId, user.id, "bot", replyText, req?.app?.get("io"));
+
+    // Increment usage for free users
+    if (user.role === "free") {
+      await pool.query(
+        "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
+        [user.id]
+      );
+    }
+
+    return {
+      success: true,
+      reply: replyText,
+    };
+  } catch (error) {
+    console.error("[DOC MOD ERROR]", error);
+    return {
+      success: false,
+      reply: `⚠️ Error modifying document: ${error.message}`,
+    };
+  }
+}
 
 // Helper: Detect weather queries
 function isWeatherQuery(msg) {
@@ -321,58 +736,96 @@ function stripAIDownloadLinks(str = "") {
  * Extracts the content generation part from a combined request
  * Removes export instructions to send clean query to AI
  */
-function extractContentRequest(message) {
-  if (!message) return message;
+/**
+ * Extracts the content generation part from a combined request using AI
+ * Removes export instructions to send clean query to AI
+ */
+async function extractContentRequest(message, OPENAI_API_KEY) {
+  if (!message || typeof message !== "string") {
+    return message;
+  }
 
-  // Remove export-related phrases from the end or middle
-  let cleaned = message
-    // Pattern 1: "and download/export as FORMAT"
-    .replace(
-      /\s*(and|then)?\s*(download|export|save|convert|turn|make|give me|provide|deliver|send)\s+(it|this|that|the result|the output)?\s*(as|into|in|to)\s+(pdf|word|docx?|excel|xlsx?|tsv|csv|ppt|pptx|txt|html|xml|md|markdown|zip|rar|7z|tar\.gz|ods|odt|odp|rtf|ics|vcf|eml|msg|mbox|jpg|jpeg|png|gif|bmp|tiff)\b.*$/i,
-      ""
-    )
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `
+You are a query refinement assistant.
 
-    // Pattern 2: "in FORMAT format"
-    .replace(
-      /\s*(and|then)?\s*(in|as|into|to)\s+(pdf|word|docx?|excel|xlsx?|tsv|csv|ppt|pptx|txt|html|xml|md|markdown)\s*(format|file|document)?\s*$/i,
-      ""
-    )
+Your task: Extract ONLY the content creation/generation part from user messages, removing all export/download instructions.
 
-    // Pattern 3: "as a FORMAT file"
-    .replace(
-      /\s*(and|then)?\s*as\s+a\s+(pdf|word|docx?|excel|xlsx?|tsv|csv)\s+file\s*$/i,
-      ""
-    )
-
-    // Pattern 4: Just "and FORMAT" at the end
-    .replace(
-      /\s*(and|then)?\s*(pdf|word|docx?|excel|xlsx?|tsv|csv|ppt|pptx|txt)\s*$/i,
-      ""
-    )
-
-    // Pattern 5: "download it into FORMAT"
-    .replace(
-      /\s*(download|export|save)\s+(it|this|that)\s+(as|into|in|to)\s+\w+\s*$/i,
-      ""
-    )
-
-    // Pattern 6: Specific case like "adn download it into tsv"
-    .replace(
-      /\s*a[dn]d\s+(download|export|save)\s+(it|this|that)?\s*(as|into|in|to)\s+\w+\s*$/i,
-      ""
-    )
-
-    .trim();
-
-  console.log("[EXTRACT CONTENT]", {
-    original: message,
-    cleaned: cleaned,
-    removed: message.length - cleaned.length,
-  });
-
-  return cleaned;
+Return JSON with this exact structure:
+{
+  "cleanedRequest": "the content request without export instructions",
+  "wasModified": boolean
 }
-// ============================================================================
+
+Rules:
+- Keep: what to create, generate, explain, analyze, write, summarize, compare, describe
+- Remove: all mentions of export, download, save, convert, file formats, delivery methods
+- Preserve: the core question/request exactly as stated
+- If no export instructions found, return original message
+
+Examples:
+
+Input: "create a marketing plan and export as PDF"
+Output: { "cleanedRequest": "create a marketing plan", "wasModified": true }
+
+Input: "explain quantum physics in docx format"
+Output: { "cleanedRequest": "explain quantum physics", "wasModified": true }
+
+Input: "analyze sales data adn download it into tsv"
+Output: { "cleanedRequest": "analyze sales data", "wasModified": true }
+
+Input: "write a business proposal and save as word"
+Output: { "cleanedRequest": "write a business proposal", "wasModified": true }
+
+Input: "summarize this document"
+Output: { "cleanedRequest": "summarize this document", "wasModified": false }
+
+Input: "what's the weather today?"
+Output: { "cleanedRequest": "what's the weather today?", "wasModified": false }
+
+Important:
+- Never add content that wasn't in the original
+- Preserve all technical terms, names, and specifics
+- Handle typos gracefully (e.g., "adn" = "and")
+- Remove phrases like "and export as", "download as", "in PDF", "save to excel", etc.
+`
+          },
+          { role: "user", content: message }
+        ]
+      })
+    });
+
+    const data = await response.json();
+    const result = JSON.parse(data.choices[0].message.content);
+
+    console.log("[EXTRACT CONTENT AI]", {
+      original: message,
+      cleaned: result.cleanedRequest,
+      wasModified: result.wasModified,
+      charsRemoved: message.length - result.cleanedRequest.length
+    });
+
+    return result.cleanedRequest;
+
+  } catch (error) {
+    console.error("[EXTRACT CONTENT ERROR]", error);
+    // Fallback: return original message if AI fails
+    return message;
+  }
+}// ============================================================================
 // MAIN CHAT ENDPOINT
 // ============================================================================
 router.post(
@@ -393,17 +846,22 @@ router.post(
     if (!sessId) return res.status(400).json({ error: "Missing sessionId" });
 
     try {
-      // User lookup
+      console.log("[CHAT] Incoming request:", { userId: id, sessId, message });
+
+      // ===== LOAD USER =====
       const [rows] = await pool.query(
-        "SELECT role, queries_used, first_name, last_name, email FROM users WHERE id=?",
+        "SELECT id, role, queries_used, first_name, last_name, email FROM users WHERE id=?",
         [id]
       );
       const user = rows[0];
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      // Weather query handler
+      console.log("[CHAT] User found:", { user });
+
+      // ===== WEATHER BRANCH =====
       const weatherCity = isWeatherQuery(message);
       if (weatherCity) {
+        console.log("[CHAT] Weather query detected for:", weatherCity);
         try {
           const weather = await getWeather({ city: weatherCity });
           const aiPrompt = `
@@ -436,8 +894,10 @@ Please give a friendly, concise weather update, just like a human would in chat.
             aiData.choices?.[0]?.message?.content?.trim() ||
             "Weather data ready.";
 
+          console.log("[CHAT] Weather AI response:", reply);
           return res.json({ reply });
         } catch (e) {
+          console.error("[CHAT] Weather fetch error:", e);
           return res.json({
             reply: `Sorry, I could not retrieve live weather for **${weatherCity}**. (${
               e.message || e
@@ -446,16 +906,17 @@ Please give a friendly, concise weather update, just like a human would in chat.
         }
       }
 
+      // ===== SAVE USER MESSAGE =====
       if (message) {
         await saveMessage(sessId, id, "user", message, req.app.get("io"));
+        console.log("[CHAT] User message saved");
       }
 
-      // Auto-title logic
+      // ===== UPDATE CONVERSATION TITLE =====
       const [convRowsTitle] = await pool.query(
         "SELECT id, title FROM conversations WHERE session_id = ? AND user_id = ?",
         [sessId, id]
       );
-
       if (
         convRowsTitle.length &&
         (!convRowsTitle[0].title || !convRowsTitle[0].title.trim())
@@ -467,9 +928,10 @@ Please give a friendly, concise weather update, just like a human would in chat.
           summaryTitle,
           convRowsTitle[0].id,
         ]);
+        console.log("[CHAT] Conversation title updated:", summaryTitle);
       }
 
-      // Message history
+      // ===== LOAD MESSAGE HISTORY =====
       const [convRows] = await pool.query(
         "SELECT id FROM conversations WHERE session_id = ? AND user_id = ?",
         [sessId, id]
@@ -490,698 +952,149 @@ Please give a friendly, concise weather update, just like a human would in chat.
           [conversation_id]
         );
         allMessages = fullMsgs;
+        console.log("[CHAT] Loaded message history:", messageHistory.length);
       }
 
-      const intent = detectExportIntent(message);
-      let { doExport, exportType } = await resolveExportType(message, intent);
-
-      console.log("[EXPORT DETECTION]", {
-        doExport,
-        exportType,
-        intentKeys: Object.keys(intent).filter((k) => intent[k]),
-      });
-
-      const pureExport = isPureExportCommand(message);
-
-      // FIX: Better combined request detection
-      const hasContentRequest =
-        /^(explain|describe|tell|what|how|why|compare|list|create|write|generate|provide|give|show|make|summarize|outline|discuss|elaborate|define|detail|advantages|disadvantages|benefits|drawbacks|pros|cons|differences|similarities|comparison|versus|bullet|table|chart|get|find|search)/i.test(
-          message
-        );
-
+      // ===== DETECT USER INTENT =====
+      const intent = await detectExportIntent(message, OPENAI_API_KEY);
+      const wordCount = message.trim().split(/\s+/).length;
+      const { isExport: doExport, isPureExport, hasContentRequest } = intent;
       const combinedRequest =
-        doExport &&
-        hasContentRequest &&
-        !pureExport &&
-        message.split(/\s+/).length >= 5;
+        doExport && hasContentRequest && !isPureExport && wordCount >= 5;
 
-      console.log("[REQUEST TYPE]", {
-        pureExport,
-        combinedRequest,
-        hasContentRequest,
+      console.log("[CHAT] User intent:", {
         doExport,
-        exportType,
-        wordCount: message.split(/\s+/).length,
+        isPureExport,
+        hasContentRequest,
+        combinedRequest,
+        exportType: intent.exportType,
+        confidence: intent.confidence,
+        wordCount,
       });
 
-      // ===== FILE EXTRACTION WITH FORMAT TRACKING =====
-    let extractedText = "";
-let importedFiles = [];
-let originalFileFormat = null;
-let originalFileName = null;
-let structuredData = null;
-let originalFilePath = null;
-let fileMetadata = {};
-
-if (req.files && req.files.length > 0) {
-  console.log("[CHAT] Processing", req.files.length, "uploaded file(s)");
-
-  try {
-    for (const file of req.files) {
-      originalFilePath = file.path;
-      originalFileName = file.originalname;
-
-      const ext = path
-        .extname(originalFileName)
-        .toLowerCase()
-        .replace(".", "");
-      originalFileFormat = ext;
-
-      console.log("[CHAT] Importing file:", {
-        name: originalFileName,
-        format: ext,
-        size: file.size
-      });
-
-      // Use comprehensive importer
-      const importResult = await importFile(originalFilePath, ext);
-
-      if (importResult.success) {
-        extractedText += importResult.extractedText + "\n\n";
-        
-        // Store structured data if available
-        if (importResult.structuredData) {
-          structuredData = importResult.structuredData;
-        }
-        
-        // Store metadata
-        fileMetadata = importResult.metadata || {};
-        
-        console.log("[CHAT] ✓ Import successful:", {
-          format: importResult.format,
-          textLength: importResult.extractedText.length,
-          hasStructuredData: !!importResult.structuredData,
-          metadata: importResult.metadata
-        });
-        
-        importedFiles.push({
-          name: originalFileName,
-          format: ext,
-          extractedText: importResult.extractedText,
-          structuredData: importResult.structuredData,
-          metadata: importResult.metadata
-        });
-      } else {
-        console.error("[CHAT] Import failed:", importResult.error);
-        extractedText += `[Failed to import ${originalFileName}: ${importResult.error}]\n\n`;
-      }
-    }
-  } catch (error) {
-    console.error("[CHAT FILE ERROR]", error);
-    extractedText += `[Error processing uploaded files: ${error.message}]\n\n`;
-  }
-}
-
-      // ===== DOCUMENT MODIFICATION SECTION - FIXED =====
-      if (originalFilePath && message) {
-        const modificationType = detectModificationType(message);
-
-        if (modificationType !== "analyze") {
-          console.log(
-            "[CHAT] Processing with direct modification (preserves all formatting)"
-          );
-
-          try {
-            const result = await modifyDocumentDirectly(
-              originalFilePath,
-              message,
-              OPENAI_API_KEY,
-              {
-                originalFormat: originalFileFormat || "txt",
-                filename: originalFileName || "document",
-              }
-            );
-
-            if (result.success) {
-              console.log("[CHAT] ✓ Direct modification successful!");
-
-              // Generate clean filename
-              const baseFilename = originalFileName
-                ? originalFileName.replace(/\.[^/.]+$/, "")
-                : "Modified_Document";
-
-              const cleanBaseFilename = baseFilename
-                .replace(/\s+/g, "_")
-                .replace(/[^a-zA-Z0-9_-]/g, "");
-
-              const finalFileName = `${Date.now()}-${cleanBaseFilename}_modified.${originalFileFormat}`;
-              const finalFilePath = path.join(uploadDir, finalFileName);
-
-              // Copy to uploads directory
-              await fs.promises.copyFile(
-                result.modifiedFilePath,
-                finalFilePath
-              );
-
-              // Create download URL
-              const downloadUrl = `/uploads/${finalFileName}`;
-
-              // Cleanup temporary files
-              try {
-                await fs.promises.unlink(originalFilePath);
-                await fs.promises.unlink(result.modifiedFilePath);
-              } catch (e) {}
-
-              const replyText = `✅ I've modified your document!
-
-📄 **Download Modified Document:**
-<a href="${BASE_URL}${downloadUrl}" target="_blank" download="${finalFileName}">${finalFileName}</a>
-`;
-
-              await saveMessage(
-                sessId,
-                id,
-                "bot",
-                replyText,
-                req.app.get("io")
-              );
-
-              if (user.role === "free") {
-                await pool.query(
-                  "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
-                  [id]
-                );
-              }
-
-              return res.json({ reply: replyText });
-            }
-          } catch (error) {
-            console.error("[MODIFICATION ERROR]", error);
-            return res.json({
-              reply: `Sorry, error: ${error.message}`,
-            });
-          }
-        }
-      }
-      // CLEANUP: Delete uploaded files if not used for modification
+      // ===== FILE EXTRACTION =====
+      let extractedText = "";
+      let importedFiles = [];
       if (req.files && req.files.length > 0) {
-        for (const file of req.files) {
-          try {
-            if (fs.existsSync(file.path)) {
-              await fs.promises.unlink(file.path);
+        console.log("[CHAT] Processing uploaded files:", req.files.length);
+        try {
+          for (const file of req.files) {
+            const fileExt = path
+              .extname(file.originalname)
+              .toLowerCase()
+              .slice(1);
+            const importResult = await importFile(file.path, fileExt);
+            console.log("🚀 ~ importResult:", importResult);
+            if (importResult.success) {
+              extractedText += importResult.extractedText + "\n\n";
+              importedFiles.push(importResult);
+              console.log("[CHAT] File imported:", file.originalname);
+            } else {
+              console.error("[CHAT] File import failed:", importResult.error);
+              extractedText += `[Failed to import ${file.originalname}: ${importResult.error}]\n\n`;
             }
-          } catch (e) {
-            console.error("[FILE CLEANUP ERROR]", e);
           }
+        } catch (e) {
+          console.error("[CHAT] File processing error:", e);
+          extractedText += `[Error processing files: ${e.message}]\n\n`;
         }
       }
 
-      // ===== BRANCH 1: PURE EXPORT (existing conversation content) =====
-      if (pureExport && doExport) {
-        console.log("[PURE EXPORT] Exporting existing content...");
-
-        let exportContent = pickContentForExport({
-          allMessages: messageHistory,
-          finalOutput: "",
-          userMessage: message,
-        });
-
-        if (!exportContent) {
-          return res.json({
-            reply:
-              "Sorry, I could not find any exportable content in our conversation.",
-          });
-        }
-
-        const exportHtmlMessages = await getExportHtmlFromContent(
-          exportContent
-        );
-        let getDownloadableData = await callOpenAI(exportHtmlMessages);
-
-        try {
-          getDownloadableData = JSON.parse(getDownloadableData);
-        } catch (e) {
-          console.log("Failed to parse JSON:", e);
-          return res.json({
-            reply: "Unable to produce the result. Please try again.",
-          });
-        }
-
-        if (!getDownloadableData.export) {
-          return res.json({
-            reply:
-              "Sorry, I could not find any exportable content in our conversation.",
-          });
-        }
-
-        exportContent = getDownloadableData.export;
-        exportContent = stripAIDownloadLinks(exportContent);
-        exportContent = cleanExportContent(exportContent);
-
-        let aiTitle = "Defizer Report";
-        try {
-          aiTitle = await generateExportTitle(messageHistory, exportContent);
-          if (!aiTitle || aiTitle.length < 3) aiTitle = "Defizer Report";
-        } catch (e) {
-          console.error("[EXPORT TITLE ERROR]", e);
-        }
-
-        let fileObj = null;
-        try {
-          fileObj = await exportFile(
-            exportContent,
-            sessId,
-            aiTitle,
-            exportType
-          );
-        } catch (exportErr) {
-          console.error("[EXPORT ERROR]", exportErr?.message || exportErr);
-          return res.json({
-            reply: "Sorry, I could not generate the export file.",
-          });
-        }
-
-        let replyText =
-          "I have created your file based on our previous conversation.";
-        if (fileObj && fileObj.url) {
-          replyText = `I have created your file based on our previous conversation.<br/><br/>📄 <strong>Download ${fileObj.label}:</strong><br/><a href="${BASE_URL}${fileObj.url}" target="_blank" rel="noopener noreferrer" download>${fileObj.name}</a>`;
-        }
-
-        await saveMessage(sessId, id, "bot", replyText, req.app.get("io"));
-        return res.json({ reply: replyText });
-      }
-
-      // ===== BRANCH 2: COMBINED REQUEST (generate content + export) =====
-      if (combinedRequest) {
-        console.log("[COMBINED REQUEST] Generating content and export file...");
-
-        // Clean the message - remove export instructions
-        let contentRequest = message
-          .replace(
-            /\s*(and|then|adn)?\s*(download|export|save|convert|turn|make|give|provide)\s+(it|this|that)?\s*(as|into|in|to)\s+(pdf|word|docx?|excel|xlsx?|tsv|csv|ppt|pptx|txt|html|xml|md|markdown|zip|rar|7z|ods|odt|odp|rtf|ics|vcf|eml|msg|mbox|jpg|jpeg|png|gif|bmp|tiff)\b.*$/i,
-            ""
-          )
-          .replace(
-            /\s*(and|then|adn)?\s*(in|as|into|to)\s+(pdf|word|tsv|csv|excel|txt|html|xml)\s*(format|file)?\s*$/i,
-            ""
-          )
-          .trim();
-
-        console.log("[COMBINED] Original message:", message);
-        console.log("[COMBINED] Content request:", contentRequest);
-        console.log("[COMBINED] Export format:", exportType);
-
-        // Get engines and web search
-        const { engineKeys, webSearch: gptWebSearch } =
-          await classifyEnginesWithGPT(contentRequest);
-        let webResults = "";
-
-        if (gptWebSearch || shouldSearchWeb(contentRequest, extractedText)) {
-          let freshResults = [];
-          try {
-            freshResults = await latestWebSearch(contentRequest, 5, true);
-          } catch (e) {
-            console.error("[WEB SEARCH ERROR]", e);
-          }
-
-          let extractsAdded = 0;
-          if (freshResults.length) {
-            webResults = `Web search results (latest, as of ${new Date()
-              .toISOString()
-              .slice(0, 10)}):\n`;
-            for (let idx = 0; idx < freshResults.length; idx++) {
-              const r = freshResults[idx];
-              let pageExtract = "";
-              if (idx < 3 && r.link && r.link.startsWith("http")) {
-                pageExtract = await extractReadableContent(r.link);
-                if (pageExtract && pageExtract.trim().length > 30) {
-                  extractsAdded++;
-                  pageExtract = pageExtract.slice(0, 1800);
-                  webResults += `\n${idx + 1}. ${r.title}\n${
-                    r.snippet
-                  }\n[Source](${r.link})\nExtract from page:\n${pageExtract}\n`;
-                }
-              }
-            }
-            if (extractsAdded > 0) {
-              webResults += "\nReferences:\n";
-              let refNum = 1;
-              for (let idx = 0; idx < freshResults.length; idx++) {
-                if (
-                  idx < 3 &&
-                  freshResults[idx].link &&
-                  freshResults[idx].link.startsWith("http")
-                ) {
-                  webResults += `[${refNum}] ${freshResults[idx].link}\n`;
-                  refNum++;
-                }
-              }
-            }
-          }
-        }
-
-        const strictCitationRules = `
-RULES FOR ANSWERING (DO NOT IGNORE):
-- Only answer using factual information found in the EXTRACTED PAGE CONTENT below (not just from titles/snippets/links).
-- If none of the extracted content answers the user's query, say: "I could not find a direct answer in the extracted web content."
-- Never make up, estimate, or synthesize answers from your own training or from search result snippets/titles.
-- For EVERY factual claim, quote the relevant extract (in italics or quote block), AND provide the clickable source link in the same sentence.
-- Be concise, factual, and show the reference inline with each fact.
-- DO NOT summarize or speculate beyond the provided extracts.
-${webResults}
-`;
-
-        const combinedPrompt =
-          strictCitationRules +
-          buildCombinedPrompt({
-            engineKeys,
-            message: contentRequest,
-            extractedText,
-            companyName,
-            location,
-            industry,
-            webResults: "",
-          });
-
-        const todayUS = new Date().toLocaleDateString("en-US");
-        const dateSystemMsg = `Today's date is: ${todayUS}. Always use this as the current date for any 'now' or 'today' question.`;
-
-        const gptMessages = [
-          {
-            role: "system",
-            content: `${dateSystemMsg}\n\n${combinedPrompt}`,
-          },
-        ];
-
-        for (const m of messageHistory) {
-          gptMessages.push({
-            role: m.sender === "user" ? "user" : "assistant",
-            content: m.message,
-          });
-        }
-
-        gptMessages.push({ role: "user", content: contentRequest });
-
-        // Get AI response
-        const aiResponse = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-            },
-            body: JSON.stringify({
-              model: "gpt-4o",
-              messages: gptMessages,
-            }),
-          }
-        );
-        const aiData = await aiResponse.json();
-        let finalOutput =
-          aiData.choices?.[0]?.message?.content || "No response from AI.";
-
-        // Save the AI response first
-        await saveMessage(sessId, id, "bot", finalOutput, req.app.get("io"));
-
-        // Generate export file
-        let exportContent = finalOutput;
-        exportContent = stripAIDownloadLinks(exportContent);
-        exportContent = cleanExportContent(exportContent);
-
-        console.log("[COMBINED] Generating export file...");
-        console.log("[COMBINED] Format:", exportType);
-        console.log("[COMBINED] Content length:", exportContent.length);
-
-        // Generate title
-        let aiTitle = contentRequest.split(" ").slice(0, 6).join(" ");
-        try {
-          aiTitle = await generateExportTitle(
-            [
-              { sender: "user", message: contentRequest },
-              { sender: "bot", message: finalOutput },
-            ],
-            exportContent
-          );
-          if (!aiTitle || aiTitle.length < 3) {
-            aiTitle = contentRequest.split(" ").slice(0, 6).join(" ");
-          }
-        } catch (e) {
-          console.error("[EXPORT TITLE ERROR]", e);
-        }
-
-        // Generate file
-        let fileObj = null;
-        try {
-          fileObj = await exportFile(
-            exportContent,
-            sessId,
-            aiTitle,
-            exportType
-          );
-          console.log("[COMBINED] File generated successfully:", fileObj);
-        } catch (exportErr) {
-          console.error(
-            "[COMBINED EXPORT ERROR]",
-            exportErr?.message || exportErr
-          );
-        }
-
-        // Create response with download link
-        let replyText = finalOutput;
-        if (fileObj && fileObj.url) {
-          replyText += `<br/><br/>📄 <strong>Download ${fileObj.label}:</strong><br/><a href="${BASE_URL}${fileObj.url}" target="_blank" rel="noopener noreferrer" download>${fileObj.name}</a>`;
-        } else {
-          replyText +=
-            "<br/><br/><em>Note: File export encountered an issue.</em>";
-        }
-
-        // Update the saved message with download link
-        await pool.query(
-          "UPDATE messages SET message = ? WHERE conversation_id = ? AND sender = ? ORDER BY id DESC LIMIT 1",
-          [replyText, conversation_id, "bot"]
-        );
-
-        if (user.role === "free") {
-          await pool.query(
-            "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
-            [id]
-          );
-        }
-
-        return res.json({ reply: replyText });
-      }
-
-      // ===== BRANCH 3: NORMAL FLOW (no export, just content generation) =====
-      console.log("[NORMAL FLOW] Processing content request...");
-
-      // ===== WEB PAGE ANALYSIS =====
-      const urlRegex = /(https?:\/\/[^\s]+)/g;
-      const urls = message.match(urlRegex);
-
-      if (urls && urls.length > 0) {
-        const url = urls[0];
-        let webContent = "";
-
-        try {
-          webContent = await scrapePageGeneral(url, 9000);
-        } catch (e) {
-          webContent = "";
-        }
-
-        if (!webContent || webContent.length < 30) {
-          try {
-            webContent = await extractReadableContent(url);
-          } catch (e) {
-            webContent = "";
-          }
-        }
-
-        if (!webContent || webContent.length < 30) {
-          const domain = url.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-          const userQuestion = message.replace(url, "").trim();
-          const query = userQuestion ? `${userQuestion} ${domain}` : domain;
-          let serpResults = [];
-          try {
-            serpResults = await latestWebSearch(query, 5, true);
-          } catch (e) {
-            serpResults = [];
-          }
-          if (serpResults.length > 0) {
-            let snippets = serpResults
-              .map((r) => `• **${r.title}**\n${r.snippet}\n[${r.link}]`)
-              .join("\n\n");
-            return res.json({
-              reply: `I couldn't extract detailed content from the page directly, but here's what I found from web search:\n\n${snippets}`,
-            });
-          } else {
-            return res.json({
-              reply:
-                "Sorry, I couldn't fetch or read enough content from that webpage, and nothing was found in web search results either.",
-            });
-          }
-        }
-
-        const prompt = `
-You are a professional web data analyst.
-
-- ONLY answer the user's question below using the provided web page content.
-- Do NOT guess or hallucinate. If the answer is NOT in the content, say: "Not found in this page."
-- Quote numbers, names, or facts *exactly* as shown.
-
-User's question/request:
-${message.replace(url, "").trim()}
-
-Web page content:
-"""
-${webContent}
-"""
-`;
-
-        const aiResponse = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-            },
-            body: JSON.stringify({
-              model: "gpt-4o",
-              messages: [{ role: "system", content: prompt }],
-            }),
-          }
-        );
-        const aiData = await aiResponse.json();
-        const finalOutput =
-          aiData.choices?.[0]?.message?.content || "No response from AI.";
-
-        await saveMessage(sessId, id, "bot", finalOutput, req.app.get("io"));
-        if (user.role === "free") {
-          await pool.query(
-            "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
-            [id]
-          );
-        }
-        return res.json({ reply: finalOutput });
-      }
-
-      // ===== NORMAL AI FLOW =====
-      const { engineKeys, webSearch: gptWebSearch } =
-        await classifyEnginesWithGPT(message);
-      let webResults = "";
-
-      if (gptWebSearch || shouldSearchWeb(message, extractedText)) {
-        let freshResults = [];
-        try {
-          freshResults = await latestWebSearch(message, 5, true);
-        } catch (e) {
-          console.error("[WEB SEARCH ERROR]", e);
-        }
-
-        let extractsAdded = 0;
-        if (freshResults.length) {
-          webResults = `Web search results (latest, as of ${new Date()
-            .toISOString()
-            .slice(0, 10)}):\n`;
-          for (let idx = 0; idx < freshResults.length; idx++) {
-            const r = freshResults[idx];
-            let pageExtract = "";
-            if (idx < 3 && r.link && r.link.startsWith("http")) {
-              pageExtract = await extractReadableContent(r.link);
-              if (pageExtract && pageExtract.trim().length > 30) {
-                extractsAdded++;
-                pageExtract = pageExtract.slice(0, 1800);
-                webResults += `\n${idx + 1}. ${r.title}\n${
-                  r.snippet
-                }\n[Source](${r.link})\nExtract from page:\n${pageExtract}\n`;
-              }
-            }
-          }
-          if (extractsAdded === 0) {
-            webResults =
-              "No usable web data was found in the top results. Please try another question or specify a more precise topic.";
-          } else {
-            webResults += "\nReferences:\n";
-            let refNum = 1;
-            for (let idx = 0; idx < freshResults.length; idx++) {
-              if (
-                idx < 3 &&
-                freshResults[idx].link &&
-                freshResults[idx].link.startsWith("http")
-              ) {
-                webResults += `[${refNum}] ${freshResults[idx].link}\n`;
-                refNum++;
-              }
-            }
-          }
-        }
-      }
-
-      const strictCitationRules = `
-RULES FOR ANSWERING (DO NOT IGNORE):
-- Only answer using factual information found in the EXTRACTED PAGE CONTENT below (not just from titles/snippets/links).
-- If none of the extracted content answers the user's query, say: "I could not find a direct answer in the extracted web content."
-- Never make up, estimate, or synthesize answers from your own training or from search result snippets/titles.
-- For EVERY factual claim, quote the relevant extract (in italics or quote block), AND provide the clickable source link in the same sentence.
-- If all pages are missing, empty, or blocked, say: "No usable web data was found in the top results. Please try another question."
-- Never answer using information from broken (404) or empty pages.
-- Only use the most up-to-date extracted content provided.
-- For weather, stock prices, or anything highly time-sensitive, prefer official APIs or government sources when available. If not available, state this to the user.
-- Be concise, factual, and show the reference inline with each fact.
-- DO NOT summarize or speculate beyond the provided extracts.
-${webResults}
-`;
-
-      const combinedPrompt =
-        strictCitationRules +
-        buildCombinedPrompt({
-          engineKeys,
+      // ===== DOCUMENT MODIFICATION =====
+      if (importedFiles.length && message) {
+        const intentResult = await detectDocumentIntent(
           message,
+          OPENAI_API_KEY
+        );
+        console.log("[CHAT] Checking document modification...");
+        if (intentResult.intent === "MODIFY") {
+          const modResult = await handleDocumentModification(
+            req.files[0],
+            message,
+            sessId,
+            user,
+            req
+          );
+          if (modResult.success) {
+            console.log("[CHAT] Document modification completed successfully");
+            return res.json({ reply: modResult.reply });
+          } else if (modResult.reply) {
+            console.log(
+              "[CHAT] Document modification failed:",
+              modResult.reply
+            );
+            return res.json({ reply: modResult.reply });
+          }
+          console.log(
+            "[CHAT] Not a modification request, continuing to normal AI flow"
+          );
+        }
+      }
+      // ===== PURE EXPORT =====
+      if (isPureExport && doExport) {
+        console.log("[CHAT] Handling pure export...");
+        console.log("[CHAT] allMessages count:", allMessages.length);
+        const reply = await handlePureExport(
+          allMessages,
+          messageHistory,
+          message,
+          sessId,
+          intent.exportType
+        );
+        return res.json({ reply });
+      }
+
+      // ===== COMBINED REQUEST (content + export) =====
+      if (combinedRequest) {
+        console.log("[CHAT] Handling combined request...");
+        const contentRequest = await extractContentRequest(
+          message,
+          OPENAI_API_KEY
+        );
+        if (!contentRequest) {
+          return res.json({
+            reply: "Please tell me what content you want to generate.",
+          });
+        }
+
+        const reply = await handleCombinedRequest(
+          contentRequest,
           extractedText,
+          messageHistory,
+          sessId,
+          user,
+          intent.exportType,
           companyName,
           location,
           industry,
-          webResults: "",
-        });
-
-      const todayUS = new Date().toLocaleDateString("en-US");
-      const dateSystemMsg = `Today's date is: ${todayUS}. Always use this as the current date for any 'now' or 'today' question. Never mention your knowledge cutoff or guess the date.`;
-
-      const gptMessages = [
-        {
-          role: "system",
-          content: `${dateSystemMsg}\n\n${combinedPrompt}`,
-        },
-      ];
-
-      for (const m of messageHistory) {
-        gptMessages.push({
-          role: m.sender === "user" ? "user" : "assistant",
-          content: m.message,
-        });
+          req
+        );
+        return res.json({ reply });
       }
-      if (message) gptMessages.push({ role: "user", content: message });
 
-      const aiResponse = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4o",
-            messages: gptMessages,
-          }),
-        }
+      // ===== NORMAL AI FLOW =====
+      console.log("[CHAT] Handling normal AI flow...");
+      const finalOutput = await getAIResponse(
+        message,
+        messageHistory,
+        extractedText,
+        companyName,
+        location,
+        industry
       );
-      const aiData = await aiResponse.json();
-      const finalOutput =
-        aiData.choices?.[0]?.message?.content || "No response from AI.";
-      let replyText = finalOutput;
 
-      await saveMessage(sessId, id, "bot", replyText, req.app.get("io"));
+      await saveMessage(sessId, id, "bot", finalOutput, req.app.get("io"));
       if (user.role === "free") {
         await pool.query(
           "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
           [id]
         );
       }
-      return res.json({ reply: replyText });
+
+      console.log("[CHAT] AI response sent");
+      return res.json({ reply: finalOutput });
     } catch (err) {
-      console.error("[AI ERROR]", err?.message || err);
+      console.error("[CHAT] AI ERROR:", err?.message || err);
       if (err.response) {
         try {
           const text = await err.response.text();
@@ -1191,18 +1104,29 @@ ${webResults}
         }
       }
       res.status(500).json({ error: err?.message || err });
+    } finally {
+      // ===== CLEANUP FILES =====
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          try {
+            if (fs.existsSync(file.path)) await fs.promises.unlink(file.path);
+            console.log("[CHAT] File cleaned up:", file.originalname);
+          } catch (e) {
+            console.error("[FILE CLEANUP ERROR]", e);
+          }
+        }
+      }
     }
   }
 );
+
 // ===== FIXED EXPORT ENDPOINT with ALL MIME types =====
 router.post("/api/export/:format", authenticate, async (req, res) => {
   const { conversationId } = req.body;
   if (!conversationId)
     return res.status(400).json({ error: "Missing conversationId" });
 
-  const exportContent = await getOrCreateEx
-
-  portSnapshot(conversationId);
+  const exportContent = await getOrCreateExportSnapshot(conversationId);
   console.log("[EXPORT SNAPSHOT CONTENT]", exportContent.slice(0, 200));
 
   const format = req.params.format.toLowerCase();

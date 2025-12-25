@@ -1,4 +1,4 @@
-// utils/documentAnalyzer.js - FIXED VERSION
+// utils/documentAnalyzer.js - FIXED VERSION with better text matching
 
 const mammoth = require('mammoth');
 const XLSX = require('xlsx');
@@ -48,6 +48,8 @@ async function extractTextForAnalysis(filePath, format) {
 /**
  * AI analyzes document and gives FORMAT-AWARE modification instructions
  */
+// In documentAnalyzer.js, update the getModificationInstructions function:
+
 async function getModificationInstructions(documentText, userRequest, OPENAI_API_KEY) {
   const prompt = `You are a document modification expert. Analyze the document and user request, then provide EXACT find-and-replace instructions.
 
@@ -58,99 +60,116 @@ ${documentText.slice(0, 12000)}
 
 USER REQUEST: "${userRequest}"
 
-CRITICAL RULES:
-1. Find the EXACT text that needs to be changed (must match document PERFECTLY)
-2. Provide the COMPLETE replacement text with proper formatting
-3. For bullet points: Use "• " (bullet character + space) for each item
-4. For numbered lists: Use "1. ", "2. ", etc.
-5. Be SPECIFIC - quote exact phrases from the document
-6. Include surrounding context if needed to make the match unique
-7. Each "find" string must appear EXACTLY ONCE in the document
+CRITICAL RULES FOR TEXT MATCHING:
+1. Read the document text EXACTLY as it appears above
+2. Find ALL variations and occurrences of the text to replace
+3. Consider case variations, spacing, and punctuation
+4. For "replace X with Y" requests, provide changes that cover common variations
 
-FORMAT-SPECIFIC GUIDANCE:
-- DOCX/DOC: Support bullets (•), numbering, bold markers (**text**)
-- XLSX/XLS: Modify cell contents, preserve table structure
-- TXT/MD: Use Markdown formatting (**, *, bullets)
-- PDF: Text replacement only (no formatting changes)
+MODIFICATION STRATEGY:
+1. First find EXACT matches of the requested text
+2. Then consider case variations (uppercase, lowercase, title case)
+3. Consider variations with punctuation (with period, with comma, etc.)
+4. Consider possessive forms if applicable
+5. Consider plural forms if applicable
+
+SCOPE DECISION GUIDELINES:
+- GLOBAL SCOPE: When user says "replace all" or doesn't specify location
+- LOCAL SCOPE: When user specifies "in paragraph 2", "first line", "section 3"
+
+IMPORTANT: Match the EXACT text from the document, not what you think it should be.
 
 Return ONLY valid JSON with this structure:
 {
   "changes": [
     {
-      "find": "exact text from document (can be multiple lines)",
-      "replace": "complete replacement text (properly formatted)",
-      "reason": "brief explanation of this change"
+      "find": "exact text from document",
+      "replace": "complete replacement text",
+      "reason": "brief explanation",
+      "scope": "global" or "local"
     }
   ],
-  "explanation": "overall summary of modifications"
+  "explanation": "overall summary of modifications",
+  "scope_analysis": "why you chose global vs local"
 }
 
 EXAMPLES:
 
-Example 1 - Convert to bullets:
-User: "Make the features list use bullet points"
-Document has:
-"Key Features:
-1. Fast processing
-2. Secure storage
-3. Easy integration"
-
+Example 1 - Simple text replacement:
+User: "Replace apple with orange"
+Document shows: "I have an apple. The apple is red. APPLES are tasty."
 Return:
 {
-  "changes": [{
-    "find": "Key Features:\n1. Fast processing\n2. Secure storage\n3. Easy integration",
-    "replace": "Key Features:\n• Fast processing\n• Secure storage\n• Easy integration",
-    "reason": "Convert numbered list to bullet points"
-  }],
-  "explanation": "Converted features list from numbered to bullet format"
+  "changes": [
+    {
+      "find": "apple",
+      "replace": "orange",
+      "reason": "Replace lowercase 'apple'",
+      "scope": "global"
+    },
+    {
+      "find": "APPLE",
+      "replace": "ORANGE",
+      "reason": "Replace uppercase 'APPLE'",
+      "scope": "global"
+    },
+    {
+      "find": "APPLES",
+      "replace": "ORANGES",
+      "scope": "global"
+    }
+  ],
+  "explanation": "Replaced 'apple' with 'orange' throughout document including case variations",
+  "scope_analysis": "Global scope as user didn't specify location"
 }
 
-Example 2 - Replace specific text:
-User: "Change 'contact us' to 'get in touch'"
-Document has: "For more information, contact us at info@example.com"
+Example 2 - With context:
+User: "Change revenue to income in the financial section"
+Document shows: "Financial Report\nRevenue: $100\nOur revenue grew..."
 Return:
 {
-  "changes": [{
-    "find": "For more information, contact us at info@example.com",
-    "replace": "For more information, get in touch at info@example.com",
-    "reason": "Updated contact phrasing"
-  }],
-  "explanation": "Changed contact wording as requested"
+  "changes": [
+    {
+      "find": "Revenue",
+      "replace": "Income",
+      "reason": "Change in financial section header",
+      "scope": "local"
+    },
+    {
+      "find": "revenue",
+      "replace": "income",
+      "reason": "Change in financial section text",
+      "scope": "local"
+    }
+  ],
+  "explanation": "Changed 'revenue' to 'income' in financial section",
+  "scope_analysis": "Local scope as user specified 'in the financial section'"
 }
 
-Example 3 - Add content:
-User: "Add a disclaimer at the end"
-Document ends with: "...all rights reserved."
+Example 3 - Phrase replacement:
+User: "Replace 'high growth' with 'rapid expansion'"
+Document shows: "We expect high growth. HIGH GROWTH markets..."
 Return:
 {
-  "changes": [{
-    "find": "all rights reserved.",
-    "replace": "all rights reserved.\n\nDisclaimer: This information is provided as-is without warranty.",
-    "reason": "Added disclaimer at end"
-  }],
-  "explanation": "Appended disclaimer to document end"
+  "changes": [
+    {
+      "find": "high growth",
+      "replace": "rapid expansion",
+      "reason": "Replace phrase",
+      "scope": "global"
+    },
+    {
+      "find": "HIGH GROWTH",
+      "replace": "RAPID EXPANSION",
+      "reason": "Replace uppercase phrase",
+      "scope": "global"
+    }
+  ],
+  "explanation": "Replaced 'high growth' with 'rapid expansion'",
+  "scope_analysis": "Global scope as phrase appears throughout"
 }
 
-Example 4 - Excel cell modification:
-User: "Change the price in row 2 to $199"
-Document has: "Product | Price\nWidget | $149"
-Return:
-{
-  "changes": [{
-    "find": "$149",
-    "replace": "$199",
-    "reason": "Updated widget price"
-  }],
-  "explanation": "Updated price for Widget"
-}
-
-IMPORTANT:
-- Return ONLY valid JSON (no markdown code blocks, no extra text)
-- Each "find" string must be UNIQUE in the document
-- Include enough context to avoid ambiguous matches
-- If you can't find the exact text, explain why in "explanation"
-
-Now analyze the document and provide modification instructions.`;
+Now analyze the user request "${userRequest}" and the document content. Provide ONLY the JSON response.`;
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -164,11 +183,11 @@ Now analyze the document and provide modification instructions.`;
         messages: [
           { 
             role: 'system', 
-            content: 'You are a precise document analyzer. Return ONLY valid JSON with exact find-replace instructions. No markdown formatting, no extra commentary.' 
+            content: 'You are a text modification assistant. Analyze the document and user request. Provide JSON with find-replace instructions for ALL variations of the text (case, punctuation, etc.). Be thorough.' 
           },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.1, // Lower temperature for more precise matching
+        temperature: 0.1, 
         max_tokens: 2000
       })
     });
@@ -203,7 +222,11 @@ Now analyze the document and provide modification instructions.`;
     
     // Validate each change
     for (const change of parsed.changes) {
-      if (!change.find || !change.replace) {
+   if (
+  typeof change.find !== 'string' ||
+  change.find.trim() === '' ||
+  typeof change.replace !== 'string'
+) {
         throw new Error('Invalid change: missing find or replace field');
       }
     }
@@ -214,7 +237,6 @@ Now analyze the document and provide modification instructions.`;
   } catch (error) {
     console.error('[ANALYZER ERROR]', error);
     
-    // Return structured error
     return {
       changes: [],
       explanation: `Analysis failed: ${error.message}`,
@@ -222,38 +244,114 @@ Now analyze the document and provide modification instructions.`;
     };
   }
 }
-
 /**
- * Validate that find text exists in document
+ * Validate that find text exists in document - WITH FLEXIBLE MATCHING
  */
 function validateChanges(documentText, changes) {
   const validated = [];
   const errors = [];
   
+  // DEBUG: Log document structure
+  console.log('[VALIDATE DEBUG] Document sample (first 500 chars):');
+  console.log(documentText.slice(0, 500));
+  console.log('[VALIDATE DEBUG] Document contains bullet "•"?', documentText.includes('•'));
+  console.log('[VALIDATE DEBUG] Document contains newlines?', documentText.includes('\n'));
+  
   for (const change of changes) {
-    const findText = change.find.trim();
+    let findText = change.find.trim();
+    
+    console.log('[VALIDATE] Looking for:', {
+      text: findText.slice(0, 100),
+      hasLiteralBackslashN: findText.includes('\\n'),
+      hasActualNewline: findText.includes('\n'),
+      length: findText.length
+    })
+    if (findText.includes('\\n')) {
+      console.log('[VALIDATE] Converting literal \\n to actual newlines');
+      findText = findText.replace(/\\n/g, '\n');
+    }
     
     if (documentText.includes(findText)) {
-      validated.push(change);
-    } else {
-      // Try fuzzy matching (normalize whitespace)
-      const normalizedDoc = documentText.replace(/\s+/g, ' ');
-      const normalizedFind = findText.replace(/\s+/g, ' ');
-      
-      if (normalizedDoc.includes(normalizedFind)) {
-        validated.push({
-          ...change,
-          find: findText // Keep original
-        });
-      } else {
-        errors.push({
-          change,
-          error: 'Find text not found in document'
-        });
-      }
+      validated.push({ ...change, find: findText });
+      console.log('[VALIDATE] ✓ Exact match found');
+      continue;
     }
+    
+    const normalizedDoc = documentText.replace(/\s+/g, ' ').trim();
+    const normalizedFind = findText.replace(/\s+/g, ' ').trim();
+    
+    console.log('[VALIDATE] Trying normalized match:', normalizedFind.slice(0, 100));
+    
+    if (normalizedDoc.includes(normalizedFind)) {
+      const startIdx = normalizedDoc.indexOf(normalizedFind);
+      validated.push({
+        ...change,
+        find: normalizedFind,
+        _matchType: 'normalized'
+      });
+      console.log('[VALIDATE] ✓ Normalized match found');
+      continue;
+    }
+    const fuzzyDoc = normalizedDoc.replace(/[•\-\*]\s*/g, '');
+    const fuzzyFind = normalizedFind.replace(/[•\-\*]\s*/g, '');
+    
+    console.log('[VALIDATE] Trying fuzzy match:', fuzzyFind.slice(0, 100));
+    
+    if (fuzzyDoc.includes(fuzzyFind)) {
+      validated.push({
+        ...change,
+        find: fuzzyFind,
+        _matchType: 'fuzzy'
+      });
+      console.log('[VALIDATE] ✓ Fuzzy match found');
+      continue;
+    }
+    
+    const firstLine = findText.split(/[\n\r]+/)[0].trim();
+    const normalizedFirstLine = firstLine.replace(/\s+/g, ' ').replace(/[•\-\*]\s*/g, '').trim();
+    
+    console.log('[VALIDATE] Trying first-line match:', normalizedFirstLine.slice(0, 80));
+    
+    if (normalizedDoc.includes(normalizedFirstLine)) {
+      console.log('[VALIDATE] ⚠️ Found partial match (first line only), this may not work fully');
+      validated.push({
+        ...change,
+        find: normalizedFirstLine,
+        _matchType: 'partial'
+      });
+      continue;
+    }
+    
+    // Match failed - log extensive debugging info
+    console.error('[VALIDATE] ✗ No match found. Debug info:');
+    console.error('  Find text (first 150 chars):', findText.slice(0, 150));
+    console.error('  Normalized find:', normalizedFind.slice(0, 150));
+    console.error('  Fuzzy find:', fuzzyFind.slice(0, 150));
+    console.error('  Document sample around expected position:');
+    
+    // Try to find similar text in document
+    const words = normalizedFind.split(' ').slice(0, 5).join(' ');
+    const similarIdx = normalizedDoc.indexOf(words);
+    if (similarIdx !== -1) {
+      console.error('  Found similar text at position', similarIdx, ':', 
+        normalizedDoc.slice(Math.max(0, similarIdx - 50), similarIdx + 200));
+    } else {
+      console.error('  No similar text found in document');
+      console.error('  Document start:', normalizedDoc.slice(0, 200));
+    }
+    
+    errors.push({
+      change,
+      error: 'Find text not found in document',
+      attempted: {
+        exact: findText.slice(0, 50),
+        normalized: normalizedFind.slice(0, 50),
+        fuzzy: fuzzyFind.slice(0, 50)
+      }
+    });
   }
   
+  console.log(`[VALIDATE] Result: ${validated.length} validated, ${errors.length} errors`);
   return { validated, errors };
 }
 

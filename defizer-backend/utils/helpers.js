@@ -1,40 +1,10 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
+const { detectExportIntent } = require('./detectExportIntent');
 const { EXPORT_CLEANER_SYSTEM_PROMPT } = require('./promts');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args)
 );
-function isPureExportCommand(msg = '') {
-  const text = String(msg || '').toLowerCase().trim();
-
-  // Very long messages usually contain real content instructions
-  if (text.length > 220) return false;
-
-  const hasExportKeyword = /(export|word|pdf|docx?|excel|file|download|document|doc file|word file|save as)/.test(text);
-
-  // If no export keywords at all, definitely not pure export
-  if (!hasExportKeyword) return false;
-
-  // Content / modification intent → then it's NOT pure export
-  const hasContentKeyword = /(what is|who is|explain|write|generate|create|draft|prepare|make|analysis|report|summary|summarize|article|blog|email|letter|proposal|contract|terms and conditions|policy|combine|merge|update|edit|improve|rewrite|continue|add section|add point|add more|describe|change|modify|convert|transform|alter|switch|replace|make it|turn|bullets?|numbered|list|analyze|review|check|read)/.test(text);
-
-  // If it has both export AND content/modification words, it's NOT pure export
-  if (hasContentKeyword) {
-    return false;
-  }
-
-  // Check if it's a standalone export command
-  const standaloneExportPatterns = [
-    /^\s*(download|export|save)\s+(?:it|this|that|the)\s+(?:as|into|in|to)\s+\w+\s*$/i,
-    /^\s*(give me|provide)\s+(?:a|an)?\s*(pdf|word|docx?|excel|xlsx?|csv|tsv)\s*(?:file)?\s*$/i,
-    /^\s*(convert|turn)\s+(?:it|this|that|the)\s+(?:into|to|as)\s+\w+\s*$/i,
-    /^\s*(download|export)\s+(?:our|this)?\s*(?:conversation|chat)\s*$/i,
-  ];
-
-  const isStandaloneExport = standaloneExportPatterns.some(pattern => pattern.test(text));
-  
-  return isStandaloneExport;
-}
 
 function detectExportScope(msg = '') {
   const text = String(msg || '').toLowerCase();
@@ -61,7 +31,78 @@ function looksLikeExportLink(text = '') {
 
   return false;
 }
+async function detectDocumentIntent(userMessage, OPENAI_API_KEY) {
+  const prompt = `You are analyzing user intent for document operations.
 
+USER MESSAGE: "${userMessage}"
+
+Classify the intent into ONE of these categories:
+
+1. "ANALYZE" - User wants to READ, UNDERSTAND, or GET INFORMATION from the document
+   Examples: summarize, explain, what's in this, tell me about, analyze, review, extract info
+
+2. "MODIFY" - User wants to CHANGE, EDIT, or UPDATE the document content
+   Examples: change, replace, update, edit, modify, add, remove, delete, fix, correct
+
+3. "EXPORT" - User wants to CONVERT or DOWNLOAD in a different format
+   Examples: convert to PDF, export as Excel, download as Word
+
+Return ONLY a JSON object:
+{
+  "intent": "ANALYZE" | "MODIFY" | "EXPORT",
+  "confidence": "high" | "medium" | "low",
+  "reason": "brief explanation"
+}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', // Faster and cheaper for classification
+        messages: [
+          { 
+            role: 'system', 
+            content: 'You are a document intent classifier. Return only valid JSON.' 
+          },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.1,
+        max_tokens: 150
+      })
+    });
+
+    const data = await response.json();
+    let result = data.choices?.[0]?.message?.content?.trim() || '{}';
+    
+    // Clean markdown artifacts
+    result = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    const parsed = JSON.parse(result);
+    
+    console.log('[DOCUMENT INTENT]', parsed);
+    
+    return {
+      intent: parsed.intent || 'ANALYZE',
+      confidence: parsed.confidence || 'low',
+      reason: parsed.reason || 'Default classification'
+    };
+    
+  } catch (error) {
+    console.error('[DOCUMENT INTENT ERROR]', error);
+    // Safe fallback: default to ANALYZE (safer than modifying)
+    return {
+      intent: 'ANALYZE',
+      confidence: 'low',
+      reason: 'Error in classification, defaulting to safe mode'
+    };
+  }
+}
+
+module.exports = { detectDocumentIntent };
 // Build a clean “combined report” from big assistant replies only
 function buildAggregatedAssistantContent(allMessages = []) {
   const safeMessages = Array.isArray(allMessages) ? allMessages : [];
@@ -85,17 +126,72 @@ function buildAggregatedAssistantContent(allMessages = []) {
 
   return selected.join('\n\n---\n\n');
 }
+async function extractContentRequest(message, OPENAI_API_KEY) {
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `
+You remove export/download instructions from user messages in ANY language.
+
+Return ONLY JSON:
+{
+  "contentRequest": string
+}
+
+Rules:
+- Remove phrases related to exporting, downloading, saving, converting, or file formats
+- Preserve the original language of the content request
+- Do NOT translate
+- Do NOT rephrase unless required
+- If message is ONLY export-related, return empty string
+
+Examples:
+"Explain JWT and export as PDF"
+→ { "contentRequest": "Explain JWT" }
+
+"JWT क्या है इसे PDF में डाउनलोड करें"
+→ { "contentRequest": "JWT क्या है" }
+
+"Crear un informe y descargar en Word"
+→ { "contentRequest": "Crear un informe" }
+`
+          },
+          { role: "user", content: message }
+        ],
+      }),
+    });
+
+    const data = await response.json();
+    const result = JSON.parse(data.choices[0].message.content);
+
+    return result.contentRequest || "";
+
+  } catch (e) {
+    console.error("[CONTENT EXTRACTION ERROR]", e);
+    return message; // safe fallback
+  }
+}
 
 
 // Decide WHAT EXACT TEXT to export
-function pickContentForExport({ allMessages = [], finalOutput = '', userMessage = '' }) {
+function pickContentForExport({ allMessages = [], finalOutput = '', userMessage = '',isPureExport }) {
+  console.log("🚀 ~ pickContentForExport ~ finalOutput:", finalOutput)
+  console.log("🚀 ~ pickContentForExport ~ isPureExport:", isPureExport)
+  console.log("🚀 ~ pickContentForExport ~ allMessages:", allMessages)
   const safeMessages = Array.isArray(allMessages) ? allMessages : [];
   const scope = detectExportScope(userMessage);
-  const pureExport = isPureExportCommand(userMessage);
-
-  // NOT pure export → user asked for new content + export
-  // e.g. "What is Angular and give me a Word document for this"
-  if (!pureExport) {
+  if (!isPureExport) {
     return finalOutput || '';
   }
 
@@ -123,234 +219,89 @@ function pickContentForExport({ allMessages = [], finalOutput = '', userMessage 
   return finalOutput || '';
 }
 
-function detectExportIntent(message = '') {
-  if (!message) return { pdf: false, word: false, excel: false, image: false, generic: false };
 
-  const msg = message.toLowerCase();
-
-  // Add typo-tolerant patterns!
-  const wordType = /\b(word|docx?|document|documnet|documnt)\b/;
-  const pdfType = /\b(pdf|\.pdf)\b/;
-  const excelType = /\b(excel|xlsx?|\.xlsx?)\b/;
-  const imageType = /\b(jpg|jpeg|png|gif|bmp|tiff|image|picture|photo|screenshot)\b/;
-
-  // "as word", "as docx", etc
-  const wordPhrase = /(in|as|into|to|on|as a|as an)\s+(word|docx?|docoument|documnet|documnt)\b/;
-  const pdfPhrase = /(in|as|into|to|on|as a|as an)\s+pdf\b/;
-  const excelPhrase = /(in|as|into|to|on|as a|as an)\s+(excel|xlsx?)\b/;
-  const imagePhrase = /(in|as|into|to|on|as a|as an)\s+(jpg|jpeg|png|gif|bmp|tiff|image|picture|photo)\b/;
-
-  const exportVerbs = /(export|download|save|generate|create|deliver|send|prepare|produce|turn|make|give|get|provide|output|issue|write|print|capture|screenshot|snap)\b/;
-  const genericExport = /(report|summary|print\s?out|copy of this|copy of|send me|deliver|can i have|give me a copy|get a file|get this file|get a version|file version|downloadable|output this)\b/;
-
-  // Prioritize: Image > Word > Excel > PDF
-  const image = (imageType.test(msg) || imagePhrase.test(msg));
-  const word = (wordType.test(msg) || wordPhrase.test(msg)) && !image;
-  const excel = (excelType.test(msg) || excelPhrase.test(msg)) && !word && !image;
-  const pdf = (pdfType.test(msg) || pdfPhrase.test(msg)) && !word && !excel && !image;
-  const generic = (exportVerbs.test(msg) || genericExport.test(msg)) && !(pdf || word || excel || image);
-
-  return { pdf, word, excel, image, generic };
-}
-async function resolveExportType(message, intent) {
+async function resolveExportType(message = '', intent = {}) {
   let doExport = false;
   let exportType = 'docx';
-  
-  // First check the intent object
-  if (intent) {
-    if (intent.image) {
+
+  const msg = message.toLowerCase();
+  const intentMap = {
+    pdf: 'pdf',
+    docx: 'docx',
+    doc: 'docx',
+    word: 'docx',
+    excel: 'xlsx',
+    xlsx: 'xlsx',
+    xls: 'xlsx',
+    csv: 'csv',
+    tsv: 'tsv',
+    txt: 'txt',
+    rtf: 'rtf',
+    html: 'html',
+    xml: 'xml',
+    md: 'md',
+    markdown: 'md',
+    ppt: 'pptx',
+    pptx: 'pptx',
+    zip: 'zip',
+    rar: 'rar',
+    '7z': '7z',
+    ods: 'ods',
+    odt: 'odt',
+    odp: 'odp',
+    mdb: 'mdb',
+    accdb: 'accdb',
+    mp4: 'mp4',
+    mp3: 'mp3',
+    wav: 'wav',
+    gif: 'gif',
+    jpg: 'jpg',
+    jpeg: 'jpg',
+    png: 'png',
+    bmp: 'bmp',
+    tiff: 'tiff'
+  };
+  for (const key in intentMap) {
+    if (intent[key]) {
       doExport = true;
-      // Determine which image format
-      const msg = (message || '').toLowerCase();
-      if (/\bjpe?g\b/.test(msg)) exportType = 'jpg';
-      else if (/\bpng\b/.test(msg)) exportType = 'png';
-      else if (/\bgif\b/.test(msg)) exportType = 'gif';
-      else if (/\bbmp\b/.test(msg)) exportType = 'bmp';
-      else if (/\btiff?\b/.test(msg)) exportType = 'tiff';
-      else exportType = 'png'; // default
-    } else if (intent.mdb) {
-      doExport = true;
-      exportType = 'mdb';
-    } else if (intent.accdb) {
-      doExport = true;
-      exportType = 'accdb';
-    } else if (intent.ods) {
-      doExport = true;
-      exportType = 'ods';
-    } else if (intent.odt) {
-      doExport = true;
-      exportType = 'odt';
-    } else if (intent.odp) {
-      doExport = true;
-      exportType = 'odp';
-    } else if (intent.csv) {
-      doExport = true;
-      exportType = 'csv';
-    } else if (intent.tsv) {
-      doExport = true;
-      exportType = 'tsv';
-    } else if (intent.word || intent.docx || intent.doc) {
-      doExport = true;
-      exportType = 'docx';
-    } else if (intent.excel || intent.xlsx || intent.xls) {
-      doExport = true;
-      exportType = 'xlsx';
-    } else if (intent.pdf) {
-      doExport = true;
-      exportType = 'pdf';
-    } else if (intent.pptx || intent.ppt) {
-      doExport = true;
-      exportType = 'pptx';
-    } else if (intent.txt) {
-      doExport = true;
-      exportType = 'txt';
-    } else if (intent.rtf) {
-      doExport = true;
-      exportType = 'rtf';
-    } else if (intent.html || intent.htm) {
-      doExport = true;
-      exportType = 'html';
-    } else if (intent.xml) {
-      doExport = true;
-      exportType = 'xml';
-    } else if (intent.markdown || intent.md) {
-      doExport = true;
-      exportType = 'md';
-    } else if (intent.zip) {
-      doExport = true;
-      exportType = 'zip';
-    } else if (intent.rar) {
-      doExport = true;
-      exportType = 'rar';
-    } else if (intent['7z']) {
-      doExport = true;
-      exportType = '7z';
-    } else if (intent.targz) {
-      doExport = true;
-      exportType = 'tar.gz';
-    } else if (intent.ics) {
-      doExport = true;
-      exportType = 'ics';
-    } else if (intent.vcf || intent.vcard) {
-      doExport = true;
-      exportType = 'vcf';
-    } else if (intent.eml) {
-      doExport = true;
-      exportType = 'eml';
-    } else if (intent.msg) {
-      doExport = true;
-      exportType = 'msg';
-    } else if (intent.mbox) {
-      doExport = true;
-      exportType = 'mbox';
-    } else if (intent.mp4) {
-      doExport = true;
-      exportType = 'mp4';
-    } else if (intent.mp3) {
-      doExport = true;
-      exportType = 'mp3';
-    } else if (intent.wav) {
-      doExport = true;
-      exportType = 'wav';
-    } else if (intent.gif) {
-      doExport = true;
-      exportType = 'gif';
-    } else if (intent.jpg || intent.jpeg) {
-      doExport = true;
-      exportType = 'jpg';
-    } else if (intent.png) {
-      doExport = true;
-      exportType = 'png';
-    } else if (intent.bmp) {
-      doExport = true;
-      exportType = 'bmp';
-    } else if (intent.tiff) {
-      doExport = true;
-      exportType = 'tiff';
-    } else if (intent.generic) {
-      doExport = true;
-      exportType = 'docx'; 
+      exportType = intentMap[key];
+      return { doExport, exportType };
     }
   }
-  
-  if (!doExport || !exportType) {
-    const msg = (message || '').toLowerCase();
-    const formatPatterns = [
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(mdb|access\s+database|ms\s+access)\b/i, format: 'mdb' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(accdb|access\s+2007)\b/i, format: 'accdb' },
-      { regex: /\b(mdb|\.mdb|access\s+database)\b/i, format: 'mdb' },
-      { regex: /\b(accdb|\.accdb)\b/i, format: 'accdb' },
-      
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(ods|opendocument\s+spreadsheet)\b/i, format: 'ods' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(odt|opendocument\s+text)\b/i, format: 'odt' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(odp|opendocument\s+presentation)\b/i, format: 'odp' },
-      { regex: /\b(ods|\.ods|libreoffice\s+spreadsheet)\b/i, format: 'ods' },
-      { regex: /\b(odt|\.odt|libreoffice\s+document)\b/i, format: 'odt' },
-      { regex: /\b(odp|\.odp|libreoffice\s+presentation)\b/i, format: 'odp' },
-      
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(jpg|jpeg)\b/i, format: 'jpg' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(png)\b/i, format: 'png' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(gif)\b/i, format: 'gif' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(bmp)\b/i, format: 'bmp' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(tiff?)\b/i, format: 'tiff' },
-      
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(xlsx|excel)\b/i, format: 'xlsx' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(csv)\b/i, format: 'csv' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(tsv)\b/i, format: 'tsv' },
-      
-       { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(docx?|word)\b/i, format: 'docx' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(pdf)\b/i, format: 'pdf' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(pptx?|powerpoint)\b/i, format: 'pptx' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(txt|text)\b/i, format: 'txt' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(html?)\b/i, format: 'html' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(rtf)\b/i, format: 'rtf' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(md|markdown)\b/i, format: 'md' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(xml)\b/i, format: 'xml' },
-      { regex: /\b(?:into|as|to|in)\s+(?:an?\s+)?(zip)\b/i, format: 'zip' },
-      
-      { regex: /\b(jpg|jpeg)\s+(?:file|image|format)\b/i, format: 'jpg' },
-      { regex: /\b(png)\s+(?:file|image|format)\b/i, format: 'png' },
-      { regex: /\b(gif)\s+(?:file|image|format)\b/i, format: 'gif' },
-      { regex: /\b(xlsx|excel)\s+(?:file|document)\b/i, format: 'xlsx' },
-      { regex: /\b(csv)\s+(?:file|format)\b/i, format: 'csv' },
-      { regex: /\b(ods)\s+(?:file|spreadsheet)\b/i, format: 'ods' },
-      { regex: /\b(odt)\s+(?:file|document)\b/i, format: 'odt' },
-      { regex: /\b(docx?|word)\s+(?:file|document)\b/i, format: 'docx' },
-      { regex: /\b(pdf)\s+(?:file|document)\b/i, format: 'pdf' },
-      
-      { regex: /\bjpe?g\b/i, format: 'jpg' },
-      { regex: /\bpng\b/i, format: 'png' },
-      { regex: /\bgif\b/i, format: 'gif' },
-      { regex: /\bods\b/i, format: 'ods' },
-      { regex: /\bodt\b/i, format: 'odt' },
-      { regex: /\bexcel\b/i, format: 'xlsx' },
-      { regex: /\bword\b/i, format: 'docx' },
-      { regex: /\bpdf\b/i, format: 'pdf' }
-    ];
+  const exportKeywords =
+    /\b(export|download|save|convert|generate|create|give me|send)\b/i;
 
-    const hasExportKeyword = /\b(export|download|save|generate|create|deliver|send|give me|convert|turn|make|capture|screenshot|snap)\b/i.test(msg);
-    
-    if (hasExportKeyword) {
-      doExport = true;
-      
-      for (const pattern of formatPatterns) {
-        if (pattern.regex.test(msg)) {
-          exportType = pattern.format;
-          break;
-        }
-      }
+  if (!exportKeywords.test(msg)) {
+    return { doExport, exportType };
+  }
+
+  doExport = true;
+
+  const regexMap = [
+    { r: /\bpdf\b/, f: 'pdf' },
+    { r: /\bexcel|xlsx\b/, f: 'xlsx' },
+    { r: /\bword|docx?\b/, f: 'docx' },
+    { r: /\bcsv\b/, f: 'csv' },
+    { r: /\btxt\b/, f: 'txt' },
+    { r: /\bhtml?\b/, f: 'html' },
+    { r: /\bmd|markdown\b/, f: 'md' },
+    { r: /\bpng\b/, f: 'png' },
+    { r: /\bjpe?g\b/, f: 'jpg' },
+    { r: /\bgif\b/, f: 'gif' }
+  ];
+
+  for (const { r, f } of regexMap) {
+    if (r.test(msg)) {
+      exportType = f;
+      break;
     }
   }
 
-  console.log('[RESOLVE EXPORT TYPE]', { 
-    message: message?.slice(0, 100),
-    intent,
-    doExport, 
-    exportType 
-  });
+  console.log('[EXPORT RESOLUTION]', { doExport, exportType });
 
   return { doExport, exportType };
 }
+
 async function classifyExportIntentWithGPT(message) {
   const prompt = `
 User message: "${message}"
@@ -412,13 +363,13 @@ async function getExportHtmlFromContent(fullContent) {
 }
 
 module.exports = {
-  isPureExportCommand,
   detectExportScope,
   looksLikeExportLink,
   buildAggregatedAssistantContent,
   pickContentForExport,
-  detectExportIntent,
   resolveExportType,
   classifyExportIntentWithGPT,
-  getExportHtmlFromContent
+  extractContentRequest,
+  getExportHtmlFromContent,
+  detectDocumentIntent
 };

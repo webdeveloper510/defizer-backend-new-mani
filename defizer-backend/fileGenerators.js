@@ -429,7 +429,7 @@ const FORMATS = {
   gif: { ext: 'gif', label: 'GIF image', handler: 'image' },
   
   // B. Text and Simple Docs
-  txt: { ext: 'txt', label: 'Text file', handler: 'pandoc', pandocArgs: '' },
+  txt: { ext: 'txt', label: 'Text file', handler: 'pandoc', pandocArgs: '-t plain --wrap=none' },
   rtf: { ext: 'rtf', label: 'RTF file', handler: 'pandoc', pandocArgs: '-s' },
   
   // C. Web and Markup
@@ -520,81 +520,164 @@ function ensureUploadDir() {
 }
 async function exportToExcel(content, outputPath, format = 'xlsx') {
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Sheet1');
+  const worksheet = workbook.addWorksheet('TechCorp Report');
 
   const lines = content.split('\n');
-
-lines.forEach((line, index) => {
-  const row = worksheet.getRow(index + 1);
-
-  // 🔥 Detect table row
-  if (line.trim().startsWith('|') && line.includes('|')) {
-    const cells = line
-      .split('|')
-      .slice(1, -1)
-      .map(c => c.trim());
-
-    cells.forEach((cell, colIndex) => {
-      const excelCell = row.getCell(colIndex + 1);
-      excelCell.value = cell;
-      excelCell.alignment = {
-        wrapText: true,
-        vertical: 'top'
-      };
-
-      // Header row styling
-      if (index === 0) {
-        excelCell.font = { bold: true };
-        excelCell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFEFEFEF' }
-        };
-        excelCell.alignment.horizontal = 'center';
-      }
-    });
-  } 
-  // 🔹 Normal text line
-  else {
-    row.getCell(1).value = line;
-    row.getCell(1).alignment = {
-      wrapText: true,
-      vertical: 'top'
+  let currentRow = 1;
+  let isInTable = false;
+  let tableHeaders = [];
+  let tableRows = [];
+  let tableStartRow = 0;
+  function addStyledCell(row, column, value, isBold = false, isHeader = false, indent = 0) {
+    const cell = row.getCell(column);
+    cell.value = value;
+        cell.font = {
+      bold: isBold,
+      size: isHeader ? 12 : 11
     };
+    
+    cell.alignment = {
+      wrapText: true,
+      vertical: 'top',
+      horizontal: 'left',
+      indent: indent
+    };
+    
+    if (isHeader) {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4472C4' } 
+      };
+      cell.font.color = { argb: 'FFFFFFFF' };
+    }
+    
+    return cell;
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    if (line === '') {
+      currentRow++;
+      continue;
+    }
+        if (line.includes('|') && line.split('|').length > 2) {
+      if (!isInTable) {
+        isInTable = true;
+        tableStartRow = currentRow;
+        tableHeaders = line.split('|')
+          .map(cell => cell.trim())
+          .filter(cell => cell !== '');
+                const headerRow = worksheet.getRow(currentRow);
+        tableHeaders.forEach((header, colIndex) => {
+          addStyledCell(headerRow, colIndex + 1, header, true, true);
+        });
+        currentRow++;
+                if (i + 1 < lines.length && lines[i + 1].includes('---')) {
+          i++; 
+        }
+      } else {
+        const cells = line.split('|')
+          .map(cell => cell.trim())
+          .filter(cell => cell !== '');
+        
+        const dataRow = worksheet.getRow(currentRow);
+        cells.forEach((cell, colIndex) => {
+          addStyledCell(dataRow, colIndex + 1, cell);
+        });
+        currentRow++;
+      }
+      continue;
+    }
+        if (isInTable && !line.includes('|')) {
+      isInTable = false;
+            const tableRange = `${worksheet.getCell(tableStartRow, 1).address}:${worksheet.getCell(currentRow - 1, tableHeaders.length).address}`;
+      const table = worksheet.getCell(tableStartRow, 1).table;
+      
+      if (!table) {
+        worksheet.addTable({
+          name: 'ReportTable',
+          ref: worksheet.getCell(tableStartRow, 1).address,
+          headerRow: true,
+          totalsRow: false,
+          style: {
+            theme: 'TableStyleMedium2',
+            showRowStripes: true,
+          },
+          columns: tableHeaders.map(header => ({ name: header })),
+          rows: tableRows
+        });
+      }
+    }
+    
+    const row = worksheet.getRow(currentRow);
+        if (line.startsWith('### ')) {
+      addStyledCell(row, 1, line.replace('### ', ''), true);
+      row.height = 25;
+      currentRow++;
+    }
+    else if (line.startsWith('- ')) {
+      addStyledCell(row, 1, line.replace('- ', '• '), false, false, 1);
+      currentRow++;
+    }    else if (line.match(/^\d+\.\s/)) {
+      addStyledCell(row, 1, line, false, false, 1);
+      currentRow++;
+    }
+    else if (line.includes('[ ]')) {
+      addStyledCell(row, 1, line.replace('[ ]', '☐'), false, false, 1);
+      currentRow++;
+    }
+    else if (line.includes('[x]') || line.includes('[X]')) {
+      addStyledCell(row, 1, line.replace(/\[[xX]\]/, '☑'), false, false, 1);
+      currentRow++;
+    }
+    else if (line.startsWith('---')) {
+      const separatorRow = worksheet.getRow(currentRow);
+      separatorRow.getCell(1).value = '────────────────────';
+      separatorRow.getCell(1).font = { color: { argb: 'FFCCCCCC' } };
+      currentRow++;
+    }
+    else {
+      addStyledCell(row, 1, line);
+      currentRow++;
+    }
   }
 
-  row.commit();
-});
+  worksheet.columns.forEach((column, columnIndex) => {
+    let maxLength = 0;
+    column.eachCell({ includeEmpty: false }, (cell) => {
+      const cellLength = cell.value ? cell.value.toString().length : 0;
+      maxLength = Math.max(maxLength, cellLength);
+    });
+    
+    column.width = Math.min(Math.max(maxLength + 3, 15), 50);
+  });
 
-  // Make column readable
-worksheet.columns.forEach(col => {
-  col.width = 35;
-});
-  // Write based on format
+  worksheet.properties.defaultRowHeight = 20;
+
   if (format === 'xls') {
-    // For XLS, we need to use XLSX library to convert
     const tempXlsxPath = outputPath.replace('.xls', '.temp.xlsx');
     try {
       await workbook.xlsx.writeFile(tempXlsxPath);
       
-      // Read the XLSX and write as XLS (Excel 97-2003 format)
       const wb = XLSX.readFile(tempXlsxPath);
       XLSX.writeFile(wb, outputPath, { 
         bookType: 'xls',
         compression: true 
       });
       
-      // Clean up temp file
       fs.unlinkSync(tempXlsxPath);
+      console.log(`Excel file saved successfully: ${outputPath}`);
     } catch (err) {
       if (fs.existsSync(tempXlsxPath)) {
         fs.unlinkSync(tempXlsxPath);
       }
+      console.error('Error saving XLS file:', err);
       throw err;
     }
   } else {
-    // Default to XLSX
     await workbook.xlsx.writeFile(outputPath);
+    console.log(`Excel file saved successfully: ${outputPath}`);
   }
 }
 
@@ -828,17 +911,86 @@ function processTableRowsTSV(tableRows, tsvRows) {
 
   tsvRows.push('');
 }
+function escapeXml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 function exportToXML(content, outputPath) {
-  const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<document>
-  <metadata>
-    <created>${new Date().toISOString()}</created>
-    <generator>Defizer Export System</generator>
-  </metadata>
-  <content><![CDATA[${content}]]></content>
-</document>`;
-  fs.writeFileSync(outputPath, xmlContent, 'utf8');
+  const lines = content.split('\n');
+
+  let xml = [];
+  let inList = false;
+  let listType = null;
+
+  xml.push('<?xml version="1.0" encoding="UTF-8"?>');
+  xml.push('<document>');
+  xml.push('  <metadata>');
+  xml.push(`    <created>${new Date().toISOString()}</created>`);
+  xml.push('    <generator>Defizer Export System</generator>');
+  xml.push('  </metadata>');
+  xml.push('  <content>');
+
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Headings ###, ##, #
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      if (inList) {
+        xml.push('    </list>');
+        inList = false;
+      }
+      const level = headingMatch[1].length;
+      xml.push(`    <heading level="${level}">${escapeXml(headingMatch[2])}</heading>`);
+      continue;
+    }
+
+    // Bullet list
+    if (/^[-*+]\s+/.test(trimmed)) {
+      if (!inList) {
+        inList = true;
+        listType = 'bullet';
+        xml.push(`    <list type="${listType}">`);
+      }
+      xml.push(`      <item>${escapeXml(trimmed.replace(/^[-*+]\s+/, ''))}</item>`);
+      continue;
+    }
+
+    // Numbered list
+    if (/^\d+\.\s+/.test(trimmed)) {
+      if (!inList) {
+        inList = true;
+        listType = 'numbered';
+        xml.push(`    <list type="${listType}">`);
+      }
+      xml.push(`      <item>${escapeXml(trimmed.replace(/^\d+\.\s+/, ''))}</item>`);
+      continue;
+    }
+
+    // Close list if needed
+    if (inList) {
+      xml.push('    </list>');
+      inList = false;
+    }
+
+    // Paragraph
+    xml.push(`    <paragraph>${escapeXml(trimmed)}</paragraph>`);
+  }
+
+  if (inList) {
+    xml.push('    </list>');
+  }
+
+  xml.push('  </content>');
+  xml.push('</document>');
+
+  fs.writeFileSync(outputPath, xml.join('\n'), 'utf8');
 }
 
 function exportToICS(content, outputPath) {
@@ -988,16 +1140,34 @@ async function exportToTARGZ(content, outputPath, fileName) {
 // PANDOC EXPORT HANDLER
 // ============================================================================
 async function exportWithPandoc(content, outputPath, formatConfig) {
-  const tempMdPath = outputPath.replace(new RegExp(`\\.${formatConfig.ext}$`), '.temp.md');
-  
+  const tempMdPath = outputPath.replace(
+    new RegExp(`\\.${formatConfig.ext}$`),
+    '.temp.md'
+  );
+
   try {
-    fs.writeFileSync(tempMdPath, content, 'utf8');
-    let pandocCmd = `pandoc "${tempMdPath}" -o "${outputPath}" ${formatConfig.pandocArgs}`.trim();
+    let normalized = content;
+    normalized = normalized
+      .replace(/:\s*-\s+/g, ':\n- ')
+      .replace(/\s+-\s+/g, '\n- ')
+      .replace(/\s+(\d+)\.\s+/g, '\n$1. ');
+
+    fs.writeFileSync(tempMdPath, normalized, 'utf8');
+
+    const pandocCmd = `pandoc "${tempMdPath}" -o "${outputPath}" ${formatConfig.pandocArgs}`.trim();
     execSync(pandocCmd, { stdio: 'inherit' });
-  } finally {
-    if (fs.existsSync(tempMdPath)) {
-      fs.unlinkSync(tempMdPath);
+
+    // ✅ Post-process TXT only
+    if (formatConfig.ext === 'txt') {
+      let txt = fs.readFileSync(outputPath, 'utf8');
+      txt = txt
+        .replace(/^\s*-\s+/gm, '• ')
+        .replace(/^\s*\[\s\]\s+/gm, '☐ ')
+        .replace(/^\s*\[\s*x\s*\]\s+/gim, '☑ ');
+      fs.writeFileSync(outputPath, txt, 'utf8');
     }
+  } finally {
+    if (fs.existsSync(tempMdPath)) fs.unlinkSync(tempMdPath);
   }
 }
 
