@@ -334,67 +334,503 @@ async function modifyDocumentDirectly(
   OPENAI_API_KEY,
   options = {}
 ) {
-  const { originalFormat, filename } = options;
+  const { originalFormat, filename, messageHistory } = options;
 
   console.log("[DIRECT MODIFIER] Starting:", {
     file: filename,
     format: originalFormat,
     request: userRequest,
+    hasHistory: !!messageHistory
   });
 
   try {
     const documentText = await extractTextForAnalysis(filePath, originalFormat);
+    
+    // Get AI instructions (now handles ALL modification types)
     const instructions = await getModificationInstructions(
       documentText,
       userRequest,
-      OPENAI_API_KEY
+      OPENAI_API_KEY,
+      messageHistory 
     );
 
-    if (!instructions.changes || instructions.changes.length === 0) {
+    // Check modification type
+    const modType = instructions.modificationType || 'REPLACE';
+    console.log('[MODIFIER] Modification type:', modType);
+    // TYPE 1: REPLACE (your existing logic - backward compatible)
+    if (modType === 'REPLACE') {
+      if (!instructions.changes || instructions.changes.length === 0) {
+        return {
+          success: false,
+          error: instructions.explanation || "No modifications identified by AI",
+        };
+      }
+      
+      const { validated, errors } = validateChanges(
+        documentText,
+        instructions.changes,
+        'REPLACE'
+      );
+
+      if (validated.length === 0) {
+        return {
+          success: false,
+          error: "No valid changes could be applied (text not found in document)",
+        };
+      }
+      
+      // Execute replace operations (your existing code)
+      switch (originalFormat.toLowerCase()) {
+        case "docx":
+          return await modifyDocxWithLists(filePath, validated, options);
+
+        case "xlsx":
+        case "xls":
+          return await modifyExcelDirectly(filePath, validated, options);
+
+        case "txt":
+        case "md":
+        case "markdown":
+          return await modifyTextDirectly(filePath, validated, options);
+        
+        case "odt":
+        case "odp":
+        case "ods":
+          return await modifyOpenDocument(filePath, validated, options);
+
+        default:
+          return {
+            success: false,
+            error: `Format ${originalFormat} not handled in direct modifier`
+          };
+      }
+    }
+
+    // TYPE 2: ADD (adding new content)
+    else if (modType === 'ADD') {
+      if (!instructions.operations || instructions.operations.length === 0) {
+        return { success: false, error: "No ADD operations specified" };
+      }
+
+      const { validated } = validateChanges(
+        documentText,
+        instructions.operations,
+        'ADD'
+      );
+
+      if (validated.length === 0) {
+        return { success: false, error: "No valid ADD operations" };
+      }
+
+      return await executeAddOperations(filePath, validated, originalFormat, options);
+    }
+
+    // TYPE 3: DELETE (removing content)
+    else if (modType === 'DELETE') {
+      if (!instructions.operations || instructions.operations.length === 0) {
+        return { success: false, error: "No DELETE operations specified" };
+      }
+
+      const { validated } = validateChanges(
+        documentText,
+        instructions.operations,
+        'DELETE'
+      );
+
+      if (validated.length === 0) {
+        return { success: false, error: "No valid DELETE operations" };
+      }
+
+      return await executeDeleteOperations(filePath, validated, originalFormat, options);
+    }
+
+    // TYPE 4: FORMAT (changing structure/format)
+    else if (modType === 'FORMAT') {
+      if (!instructions.operations || instructions.operations.length === 0) {
+        return { success: false, error: "No FORMAT operations specified" };
+      }
+
+      const { validated } = validateChanges(
+        documentText,
+        instructions.operations,
+        'FORMAT'
+      );
+
+      if (validated.length === 0) {
+        return { success: false, error: "No valid FORMAT operations" };
+      }
+
+      return await executeFormatOperations(filePath, validated, originalFormat, options);
+    }
+
+    // TYPE 5: TRANSFORM (rewriting content)
+    else if (modType === 'TRANSFORM') {
+      if (!instructions.operations || instructions.operations.length === 0) {
+        return { success: false, error: "No TRANSFORM operations specified" };
+      }
+
+      return await executeTransformOperations(filePath, instructions.operations, originalFormat, options);
+    }
+
+    // TYPE 6-8: Other types (can add later)
+    else {
       return {
         success: false,
-        error: instructions.explanation || "No modifications identified by AI",
+        error: `Modification type ${modType} not yet implemented. Falling back to text extraction method.`
       };
     }
-    const { validated, errors } = validateChanges(
-      documentText,
-      instructions.changes
-    );
 
-    if (validated.length === 0) {
-      return {
-        success: false,
-        error: "No valid changes could be applied (text not found in document)",
-      };
-    }
-    switch (originalFormat.toLowerCase()) {
-      case "docx":
-        return await modifyDocxWithLists(filePath, validated, options);
-
-      case "xlsx":
-      case "xls":
-        return await modifyExcelDirectly(filePath, validated, options);
-
-      case "txt":
-      case "md":
-      case "markdown":
-        return await modifyTextDirectly(filePath, validated, options);
-      case "odt":
-      case "odp":
-      case "ods":
-        return await modifyOpenDocument(filePath, validated, options);
-
-      default:
-        return new Error(
-          `Format ${originalFormat} not handled in direct modifier`
-        );
-    }
   } catch (error) {
     console.error("[DIRECT MODIFIER ERROR]", error);
     return {
       success: false,
       error: error.message,
     };
+  }
+}
+
+async function executeAddOperations(filePath, operations, originalFormat, options) {
+  console.log('[ADD EXECUTOR] Starting with', operations.length, 'operations');
+  
+  switch (originalFormat.toLowerCase()) {
+    case 'docx':
+      return await executeAddInDocx(filePath, operations, options);
+    case 'txt':
+    case 'md':
+    case 'markdown':
+      return await executeAddInText(filePath, operations, options);
+    case 'xlsx':
+    case 'xls':
+      return await executeAddInExcel(filePath, operations, options);
+    default:
+      return { success: false, error: `ADD not supported for ${originalFormat}` };
+  }
+}
+async function executeAddInDocx(filePath, operations, options) {
+  const PizZip = require('pizzip');
+  const fsSync = require('fs');
+  
+  const content = fsSync.readFileSync(filePath, 'binary');
+  const zip = new PizZip(content);
+  let documentXml = zip.files['word/document.xml'].asText();
+
+  let modificationsApplied = 0;
+
+  for (const op of operations) {
+    const newContent = op.content;
+    const position = op.position || 'append';
+    
+    // Create paragraph XML
+    let paragraphXml;
+    
+    if (op.formatting?.type === 'bullet_list') {
+      const lines = newContent.split('\n').filter(l => l.trim());
+      paragraphXml = lines.map(line => 
+        `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>${escapeXml(line)}</w:t></w:r></w:p>`
+      ).join('');
+    } else {
+      paragraphXml = `<w:p><w:r><w:t>${escapeXml(newContent)}</w:t></w:r></w:p>`;
+    }
+
+    // Insert based on position
+    if (position === 'append') {
+      documentXml = documentXml.replace('</w:body>', paragraphXml + '</w:body>');
+      modificationsApplied++;
+    } else if (position === 'prepend') {
+      documentXml = documentXml.replace('<w:body>', '<w:body>' + paragraphXml);
+      modificationsApplied++;
+    } else if (position === 'after' && op.anchor) {
+      const anchorText = escapeXml(op.anchor);
+      const regex = new RegExp(`(<w:t[^>]*>${anchorText}</w:t>.*?</w:p>)`);
+      if (regex.test(documentXml)) {
+        documentXml = documentXml.replace(regex, '$1' + paragraphXml);
+        modificationsApplied++;
+      }
+    }
+  }
+
+  if (modificationsApplied === 0) {
+    return { success: false, error: 'No ADD operations applied' };
+  }
+
+  zip.file('word/document.xml', documentXml);
+  const modifiedBuffer = zip.generate({ type: 'nodebuffer' });
+  const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+  await fs.writeFile(outputPath, modifiedBuffer);
+
+  return {
+    success: true,
+    modifiedFilePath: outputPath,
+    originalFormat: 'docx',
+    metadata: { method: 'ADD', operationsApplied: modificationsApplied }
+  };
+}
+
+async function executeAddInText(filePath, operations, options) {
+  let content = await fs.readFile(filePath, 'utf-8');
+  let modificationsApplied = 0;
+
+  for (const op of operations) {
+    const position = op.position || 'append';
+    const newContent = op.content;
+
+    if (position === 'append') {
+      content += '\n\n' + newContent;
+      modificationsApplied++;
+    } else if (position === 'prepend') {
+      content = newContent + '\n\n' + content;
+      modificationsApplied++;
+    } else if (position === 'after' && op.anchor) {
+      const anchorIndex = content.indexOf(op.anchor);
+      if (anchorIndex !== -1) {
+        const insertPoint = anchorIndex + op.anchor.length;
+        content = content.slice(0, insertPoint) + '\n\n' + newContent + content.slice(insertPoint);
+        modificationsApplied++;
+      }
+    }
+  }
+
+  const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+  await fs.writeFile(outputPath, content);
+
+  return {
+    success: true,
+    modifiedFilePath: outputPath,
+    metadata: { method: 'ADD', operationsApplied: modificationsApplied }
+  };
+}
+
+async function executeAddInExcel(filePath, operations, options) {
+  const ExcelJS = require('exceljs');
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.worksheets[0];
+
+  let modificationsApplied = 0;
+
+  for (const op of operations) {
+    // Add row to bottom
+    if (op.content.includes('|')) {
+      const values = op.content.split('|').map(v => v.trim());
+      worksheet.addRow(values);
+      modificationsApplied++;
+    }
+  }
+
+  const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+  await workbook.xlsx.writeFile(outputPath);
+
+  return {
+    success: true,
+    modifiedFilePath: outputPath,
+    metadata: { method: 'ADD', operationsApplied: modificationsApplied }
+  };
+}
+
+/**
+ * Execute DELETE operations
+ */
+async function executeDeleteOperations(filePath, operations, originalFormat, options) {
+  console.log('[DELETE EXECUTOR] Starting with', operations.length, 'operations');
+  
+  switch (originalFormat.toLowerCase()) {
+    case 'docx':
+      return await executeDeleteInDocx(filePath, operations, options);
+    case 'txt':
+    case 'md':
+    case 'markdown':
+      return await executeDeleteInText(filePath, operations, options);
+    default:
+      return { success: false, error: `DELETE not supported for ${originalFormat}` };
+  }
+}
+
+async function executeDeleteInDocx(filePath, operations, options) {
+  const PizZip = require('pizzip');
+  const fsSync = require('fs');
+  
+  const content = fsSync.readFileSync(filePath, 'binary');
+  const zip = new PizZip(content);
+  let documentXml = zip.files['word/document.xml'].asText();
+
+  let modificationsApplied = 0;
+
+  for (const op of operations) {
+    const targetText = escapeXml(op.target);
+    
+    // Delete paragraph containing target text
+    const regex = new RegExp(`<w:p>.*?<w:t[^>]*>${escapeRegExp(targetText)}</w:t>.*?</w:p>`, 'g');
+    const beforeLength = documentXml.length;
+    documentXml = documentXml.replace(regex, '');
+    
+    if (documentXml.length < beforeLength) {
+      modificationsApplied++;
+    }
+  }
+
+  if (modificationsApplied === 0) {
+    return { success: false, error: 'No DELETE operations applied' };
+  }
+
+  zip.file('word/document.xml', documentXml);
+  const modifiedBuffer = zip.generate({ type: 'nodebuffer' });
+  const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+  await fs.writeFile(outputPath, modifiedBuffer);
+
+  return {
+    success: true,
+    modifiedFilePath: outputPath,
+    metadata: { method: 'DELETE', operationsApplied: modificationsApplied }
+  };
+}
+
+async function executeDeleteInText(filePath, operations, options) {
+  let content = await fs.readFile(filePath, 'utf-8');
+  let modificationsApplied = 0;
+
+  for (const op of operations) {
+    const target = op.target;
+    
+    if (content.includes(target)) {
+      content = content.replace(target, '');
+      modificationsApplied++;
+    }
+  }
+
+  const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+  await fs.writeFile(outputPath, content);
+
+  return {
+    success: true,
+    modifiedFilePath: outputPath,
+    metadata: { method: 'DELETE', operationsApplied: modificationsApplied }
+  };
+}
+
+/**
+ * Execute FORMAT operations (convert to lists, tables, etc.)
+ */
+async function executeFormatOperations(filePath, operations, originalFormat, options) {
+  console.log('[FORMAT EXECUTOR] Starting with', operations.length, 'operations');
+    const { executeFormatOperationsDynamic } = require('./documentModifierDynamic');
+    try {
+    const result = await executeFormatOperationsDynamic(filePath, operations, originalFormat, options);
+    
+    if (result.success) {
+      return result; 
+    }
+    
+    console.log('[FORMAT] Dynamic approach failed, falling back to static...');
+  } catch (error) {
+    console.error('[FORMAT] Dynamic error:', error);
+  }
+  
+  switch (originalFormat.toLowerCase()) {
+    case 'docx':
+      return await executeFormatInDocx(filePath, operations, options); 
+    case 'txt':
+      return await executeFormatInText(filePath, operations, options);
+    default:
+      return { success: false, error: `FORMAT not supported for ${originalFormat}` };
+  }
+}
+
+async function executeFormatInDocx(filePath, operations, options) {
+  const PizZip = require('pizzip');
+  const fsSync = require('fs');
+  
+  const content = fsSync.readFileSync(filePath, 'binary');
+  const zip = new PizZip(content);
+  let documentXml = zip.files['word/document.xml'].asText();
+
+  let modificationsApplied = 0;
+
+  for (const op of operations) {
+    const sourceText = op.source;
+    const transformation = op.transformation;
+    const targetContent = op.targetContent;
+
+    if (transformation === 'to_bullet_list' && targetContent) {
+      // Convert to bullet list
+      const lines = targetContent.split('\n').filter(l => l.trim());
+      const listXml = lines.map(line => 
+        `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>${escapeXml(line.replace(/^[•\-\*]\s*/, ''))}</w:t></w:r></w:p>`
+      ).join('');
+
+      // Find and replace the source text paragraph
+      const sourceEscaped = escapeXml(sourceText);
+      const regex = new RegExp(`<w:p>.*?<w:t[^>]*>${escapeRegExp(sourceEscaped)}</w:t>.*?</w:p>`, 'g');
+      
+      if (regex.test(documentXml)) {
+        documentXml = documentXml.replace(regex, listXml);
+        modificationsApplied++;
+      }
+    }
+  }
+
+  if (modificationsApplied === 0) {
+    return { success: false, error: 'No FORMAT operations applied' };
+  }
+
+  zip.file('word/document.xml', documentXml);
+  const modifiedBuffer = zip.generate({ type: 'nodebuffer' });
+  const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+  await fs.writeFile(outputPath, modifiedBuffer);
+
+  return {
+    success: true,
+    modifiedFilePath: outputPath,
+    metadata: { method: 'FORMAT', operationsApplied: modificationsApplied }
+  };
+}
+
+async function executeFormatInText(filePath, operations, options) {
+  let content = await fs.readFile(filePath, 'utf-8');
+  let modificationsApplied = 0;
+
+  for (const op of operations) {
+    const sourceText = op.source;
+    const targetContent = op.targetContent;
+
+    if (content.includes(sourceText) && targetContent) {
+      content = content.replace(sourceText, targetContent);
+      modificationsApplied++;
+    }
+  }
+
+  const outputPath = filePath.replace(/(\.[^.]+)$/, '_modified$1');
+  await fs.writeFile(outputPath, content);
+
+  return {
+    success: true,
+    modifiedFilePath: outputPath,
+    metadata: { method: 'FORMAT', operationsApplied: modificationsApplied }
+  };
+}
+
+/**
+ * Execute TRANSFORM operations (AI rewrites content)
+ */
+async function executeTransformOperations(filePath, operations, originalFormat, options) {
+  console.log('[TRANSFORM EXECUTOR] Starting with', operations.length, 'operations');
+  
+  // Transform is simple: just replace source with target
+  const changes = operations.map(op => ({
+    find: op.source,
+    replace: op.target,
+    reason: op.reason || 'Transform operation'
+  }));
+
+  // Use existing modify functions
+  switch (originalFormat.toLowerCase()) {
+    case 'docx':
+      return await modifyDocxWithLists(filePath, changes, options);
+    case 'txt':
+    case 'md':
+    case 'markdown':
+      return await modifyTextDirectly(filePath, changes, options);
+    default:
+      return { success: false, error: `TRANSFORM not supported for ${originalFormat}` };
   }
 }
 async function modifyOpenDocument(filePath, changes, options = {}) {
@@ -1325,5 +1761,9 @@ module.exports = {
   getModificationStrategy,
   MODIFIABLE_FORMATS,
   modifyOpenDocument,
-  modifyOpenDocumentAdvanced
+  modifyOpenDocumentAdvanced,
+    executeAddOperations,
+  executeDeleteOperations,
+  executeFormatOperations,
+  executeTransformOperations
 };

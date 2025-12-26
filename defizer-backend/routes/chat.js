@@ -537,7 +537,8 @@ async function handleDocumentModification(
   userMessage,
   sessId,
   user,
-  req
+  req,
+  messageHistory = []
 ) {
   console.log("[DOC MOD] Starting modification for file:", file.originalname);
 
@@ -548,7 +549,6 @@ async function handleDocumentModification(
     .replace(".", "")
     .toLowerCase();
 
-  // Check if format is modifiable
   if (!isFormatModifiable(originalFileFormat)) {
     console.log("[DOC MOD] File format not modifiable:", originalFileFormat);
     return {
@@ -558,14 +558,13 @@ async function handleDocumentModification(
   }
 
   try {
-    // Detect if this is a modification request
     const modificationType = await detectModificationType(userMessage);
     if (modificationType === "analyze") {
       console.log(
         "[DOC MOD] Modification type is 'analyze', skipping changes."
       );
       return {
-        success: false, // Don't block - let normal AI flow handle it
+        success: false,
         reply: null,
       };
     }
@@ -573,7 +572,6 @@ async function handleDocumentModification(
     console.log(
       `[DOC MOD] Modifying file (${originalFileFormat.toUpperCase()})...`
     );
-
     const result = await modifyDocumentEnhanced(
       originalFilePath,
       userMessage,
@@ -581,6 +579,7 @@ async function handleDocumentModification(
       {
         originalFormat: originalFileFormat,
         filename: originalFileName || "document",
+        messageHistory: messageHistory 
       }
     );
 
@@ -591,19 +590,14 @@ async function handleDocumentModification(
         reply: `⚠️ Unable to modify document. Reason: ${result.error}`,
       };
     }
-
-    // Generate unique filename for modified file
     const baseFilename = originalFileName
       .replace(/\.[^/.]+$/, "")
       .replace(/\s+/g, "_")
       .replace(/[^a-zA-Z0-9_-]/g, "");
     const finalFileName = `${Date.now()}-${baseFilename}_modified.${originalFileFormat}`;
     const finalFilePath = path.join(uploadDir, finalFileName);
-
-    // Copy modified file to final location
     await fs.promises.copyFile(result.modifiedFilePath, finalFilePath);
 
-    // Clean up temporary files
     try {
       await fs.promises.unlink(originalFilePath);
     } catch (e) {
@@ -649,7 +643,6 @@ async function handleDocumentModification(
   }
 }
 
-// Helper: Detect weather queries
 function isWeatherQuery(msg) {
   if (!msg) return null;
   const match = msg.match(
@@ -1265,24 +1258,22 @@ Reply with ONE WORD: YES or NO`
         wordCount,
       });
 
-      // ===== DOCUMENT MODIFICATION =====
-      if (importedFiles.length && message) {
+          if (importedFiles.length && message) {
         const intentResult = await detectDocumentIntent(message, OPENAI_API_KEY);
         console.log("[CHAT] Document intent:", intentResult.intent);
         
         if (intentResult.intent === "MODIFY") {
-          // Use the file from importedFiles (either new or previously uploaded)
           const fileToModify = {
             path: importedFiles[0].filePath,
             originalname: importedFiles[0].originalName
           };
-
           const modResult = await handleDocumentModification(
             fileToModify,
             message,
             sessId,
             user,
-            req
+            req,
+            messageHistory
           );
           
           if (modResult.success) {

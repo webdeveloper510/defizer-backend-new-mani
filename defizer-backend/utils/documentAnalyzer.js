@@ -1,13 +1,9 @@
-// utils/documentAnalyzer.js - FIXED VERSION with better text matching
 
 const mammoth = require('mammoth');
 const XLSX = require('xlsx');
 const pdfParse = require('pdf-parse');
 const fs = require('fs').promises;
 
-/**
- * Extract text for AI to understand
- */
 async function extractTextForAnalysis(filePath, format) {
   try {
     switch(format.toLowerCase()) {
@@ -45,91 +41,178 @@ async function extractTextForAnalysis(filePath, format) {
   }
 }
 
-async function getModificationInstructions(documentText, userRequest, OPENAI_API_KEY) {
-  const prompt = `You are an intelligent document modification assistant. Your job is to understand what the user wants and provide precise find-and-replace instructions.
+async function getModificationInstructions(documentText, userRequest, OPENAI_API_KEY, messageHistory = []) {
+  let conversationContext = "";
+  if (messageHistory && messageHistory.length > 0) {
+    conversationContext = "\n\nCONVERSATION HISTORY:\n";
+    const recentMessages = messageHistory.slice(-10);
+    
+    recentMessages.forEach((msg, idx) => {
+      const role = msg.sender === 'user' ? 'USER' : 'ASSISTANT';
+      conversationContext += `${role}: ${msg.message}\n`;
+    });
+    
+    conversationContext += `\nCURRENT USER REQUEST: "${userRequest}"\n`;
+  }
+    const prompt = `You are an intelligent document modification assistant that handles ANY type of modification request.
+
+${conversationContext ? conversationContext : `USER REQUEST: "${userRequest}"`}
 
 DOCUMENT CONTENT:
 """
 ${documentText.slice(0, 12000)}
 """
 
-USER'S REQUEST: "${userRequest}"
-
 YOUR TASK:
-1. Understand the user's intent (even if they have typos or are unclear)
-2. Find the EXACT text in the document that needs to be changed
-3. Provide precise find-and-replace instructions
+Analyze the request and determine what type of modification is needed. You can handle:
 
-CRITICAL RULES:
-✓ Match text EXACTLY as it appears in the document (case-sensitive)
-✓ If user has typos, interpret their real intent
-✓ If user asks to "make X a list", convert content to proper list format
-✓ If user asks to "add", "remove", "change", "update" - understand what they mean
-✓ Look at the ACTUAL document content above, not what you think it should be
-✓ Return changes that will actually work when applied to the document
+1. **REPLACE** - Change existing text
+   Examples: "change AWS to Azure", "update the date to 2024", "fix the typo"
 
-OUTPUT FORMAT:
-Return ONLY valid JSON (no markdown, no explanation outside JSON):
+2. **ADD** - Insert new content
+   Examples: "add a conclusion", "insert a table with X data", "add bullet points for Y"
+
+3. **DELETE** - Remove content
+   Examples: "remove the intro", "delete section 3", "take out the last paragraph"
+
+4. **FORMAT** - Change formatting or structure
+   Examples: "make it a bullet list", "convert to table", "make this bold", "add headings"
+
+5. **RESTRUCTURE** - Reorganize content
+   Examples: "move section 2 before section 1", "combine these paragraphs"
+
+6. **TRANSFORM** - Rewrite content
+   Examples: "make it more formal", "summarize this", "expand on this point"
+
+7. **EXTRACT** - Pull out specific information
+   Examples: "extract all dates", "list all key points"
+
+8. **COMPUTE** - Calculate or analyze data
+   Examples: "add totals", "calculate the average", "count occurrences"
+
+CRITICAL RULES FOR ALL TYPES:
+
+✅ **For REPLACE operations:**
+   - Match text EXACTLY as it appears in the document
+   - Include proper whitespace, line breaks, bullets
+   - Use the "changes" format with find/replace
+
+✅ **For ADD operations:**
+   - Specify WHERE to add (use "position" and "anchor")
+   - Provide COMPLETE content to add
+   - Match the document's formatting style
+
+✅ **For DELETE operations:**
+   - Identify content precisely
+   - Can use exact text or section markers
+
+✅ **For FORMAT operations:**
+   - Specify source content and target format
+   - Include formatting parameters (bullet style, heading level, etc.)
+
+✅ **For TRANSFORM operations:**
+   - Provide both original and transformed content
+   - Explain the transformation
+
+✅ **Use conversation history to resolve:**
+   - Pronouns: "it", "this", "that", "these", "those"
+   - Vague references: "the list", "the section", "the data"
+   - Context-dependent requests: "now do X", "make it Y"
+
+OUTPUT FORMAT - Always return valid JSON:
+
+**For REPLACE (find/replace modifications):**
 {
+  "modificationType": "REPLACE",
   "changes": [
     {
       "find": "exact text from document",
       "replace": "new text",
-      "reason": "why this change",
-      "scope": "global"
+      "reason": "explanation",
+      "scope": "global|first"
     }
   ],
-  "explanation": "what you understood and what you're doing",
-  "interpretation": "how you interpreted the user's request (mention any corrections you made)"
+  "explanation": "what you understood"
 }
 
-UNDERSTANDING USER INTENT:
-- If unclear, make your best intelligent guess
-- If user has typos, figure out what they meant
-- If user says "list", convert to bullet format (• item)
-- If user says "numbered list", use numbering (1. item)
-- If user says "bold/italic", add appropriate formatting markers
-- If user says "section", find that section and modify it
-- If user says "add", insert new content appropriately
-- If user says "remove/delete", replace with empty string
+**For ADD (adding new content):**
+{
+  "modificationType": "ADD",
+  "operations": [
+    {
+      "type": "add",
+      "position": "after|before|append|prepend",
+      "anchor": "text near where to add (or START/END)",
+      "content": "complete content to add",
+      "formatting": {
+        "type": "paragraph|bullet_list|numbered_list|table|heading",
+        "style": "normal|bold|italic"
+      },
+      "reason": "explanation"
+    }
+  ],
+  "explanation": "what will be added"
+}
 
-EXAMPLES OF INTELLIGENT INTERPRETATION:
+**For DELETE (removing content):**
+{
+  "modificationType": "DELETE",
+  "operations": [
+    {
+      "type": "delete",
+      "target": "exact text to delete",
+      "mode": "exact|section|range",
+      "startMarker": "text before (optional)",
+      "endMarker": "text after (optional)",
+      "reason": "explanation"
+    }
+  ],
+  "explanation": "what will be deleted"
+}
 
-User: "make key features a list"
-→ Understand: Convert the Key Features section content into bullet list format
+**For FORMAT (changing structure/format):**
+{
+  "modificationType": "FORMAT",
+  "operations": [
+    {
+      "type": "format",
+      "source": "content to format",
+      "transformation": "to_bullet_list|to_numbered_list|to_table|to_heading|to_bold",
+      "parameters": {
+        "heading_level": 2,
+        "list_style": "bullet",
+        "table_headers": ["col1", "col2"]
+      },
+      "targetContent": "formatted version",
+      "reason": "explanation"
+    }
+  ],
+  "explanation": "formatting changes"
+}
 
-User: "change price to cost"
-→ Understand: Replace the word "price" with "cost" (all variations)
+**For TRANSFORM (rewriting content):**
+{
+  "modificationType": "TRANSFORM",
+  "operations": [
+    {
+      "type": "transform",
+      "source": "original content",
+      "target": "transformed content",
+      "transformation": "summarize|expand|formalize|simplify",
+      "reason": "explanation"
+    }
+  ],
+  "explanation": "content transformation"
+}
 
-User: "add Q5 data: revenue 5.0, expenses 3.0"
-→ Understand: Insert a new row/line with Q5 data
+IMPORTANT NOTES:
+- If request is ambiguous, use conversation history to clarify
+- For REPLACE type, MUST use "changes" array (backward compatible)
+- For other types, use "operations" array
+- Always include "modificationType" field
+- Match text EXACTLY from document (case-sensitive, with whitespace)
 
-User: "remove the conclusion paragraph"
-→ Understand: Delete/replace the conclusion section with empty string
-
-User: "make headings bold"
-→ Understand: Add **heading** formatting around section titles
-
-User: "fix the typo in line 3"
-→ Understand: Need to identify and correct the typo in third line
-
-User: "update revenue to 100k"
-→ Understand: Find revenue value and change it to 100k
-
-User: "make it more professional"
-→ Understand: Improve tone/wording while keeping meaning
-
-NOW ANALYZE:
-The user said: "${userRequest}"
-The document contains: (see above)
-
-Think step by step:
-1. What does the user want?
-2. Where in the document should I make changes?
-3. What exact text should I find?
-4. What should I replace it with?
-
-Provide the JSON response.`;
+NOW ANALYZE THE REQUEST AND RESPOND WITH JSON:`;
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -143,21 +226,12 @@ Provide the JSON response.`;
         messages: [
           { 
             role: 'system', 
-            content: `You are an expert at understanding user intent and providing precise document modifications. 
-
-Key abilities:
-- Interpret vague or typo-filled requests
-- Match exact text from documents (case-sensitive)
-- Convert between formats (paragraph → list, etc.)
-- Handle any type of modification: replace, add, remove, reformat, restructure
-- Return only valid JSON
-
-Be intelligent and adaptive. The user might ask ANYTHING - your job is to figure out what they want and provide the right find-replace instructions.` 
+            content: `You are a universal document modification expert. You handle ALL types of modifications: replace, add, delete, format, transform, etc. Always return valid JSON with the correct structure based on modification type.` 
           },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.3, 
-        max_tokens: 3000
+        temperature: 0.3,
+        max_tokens: 4000
       })
     });
 
@@ -173,155 +247,152 @@ Be intelligent and adaptive. The user might ask ANYTHING - your job is to figure
       throw new Error('Empty response from OpenAI');
     }
 
-    console.log('[AI MODIFICATION ANALYSIS]');
-    console.log('User request:', userRequest);
-    console.log('AI response preview:', content.slice(0, 300));
-        let cleaned = content
+    console.log('[AI ANALYSIS] Response preview:', content.slice(0, 300));
+    
+    let cleaned = content
       .replace(/```json\n?/g, '')
       .replace(/```\n?/g, '')
       .trim();
-    
-    const parsed = JSON.parse(cleaned);
-        if (!parsed.changes || !Array.isArray(parsed.changes)) {
-      throw new Error('AI returned invalid structure: missing changes array');
+        const parsed = JSON.parse(cleaned);
+        console.log('[MODIFICATION TYPE]', parsed.modificationType || 'REPLACE (default)');
+        if (!parsed.modificationType) {
+      parsed.modificationType = 'REPLACE';
     }
-        console.log('[AI INTERPRETATION]', parsed.interpretation || parsed.explanation);
-    console.log('[AI CHANGES]', parsed.changes.length, 'modifications planned');
-    
-    for (let i = 0; i < parsed.changes.length; i++) {
-      const change = parsed.changes[i];
-      
-      if (!change.find || typeof change.find !== 'string' || change.find.trim() === '') {
-        console.warn(`[VALIDATOR] Change ${i+1}: Missing or empty 'find' field, skipping`);
-        continue;
+        if (parsed.modificationType === 'REPLACE') {
+      if (!parsed.changes || !Array.isArray(parsed.changes)) {
+        throw new Error('REPLACE type must have "changes" array');
       }
-      
-      if (typeof change.replace !== 'string') {
-        console.warn(`[VALIDATOR] Change ${i+1}: Invalid 'replace' field, skipping`);
-        continue;
+      console.log('[AI CHANGES]', parsed.changes.length, 'replacements planned');
+    } else {
+      if (!parsed.operations || !Array.isArray(parsed.operations)) {
+        throw new Error(`${parsed.modificationType} type must have "operations" array`);
       }
-      
-      console.log(`[VALIDATOR] Change ${i+1}: ✓ Valid`);
-      console.log(`  Find: "${change.find.slice(0, 50)}${change.find.length > 50 ? '...' : ''}"`);
-      console.log(`  Replace: "${change.replace.slice(0, 50)}${change.replace.length > 50 ? '...' : ''}"`);
-      console.log(`  Reason: ${change.reason}`);
+      console.log('[AI OPERATIONS]', parsed.operations.length, 'operations planned');
     }
+    
+    console.log('[AI EXPLANATION]', parsed.explanation);
     
     return parsed;
     
   } catch (error) {
-    console.error('[AI MODIFICATION ERROR]', error);
-        return {
+    console.error('[AI ANALYSIS ERROR]', error);
+    
+    return {
+      modificationType: 'REPLACE',
       changes: [],
-      explanation: `Could not understand the request: ${error.message}`,
-      interpretation: `Failed to process: "${userRequest}"`,
+      explanation: `Could not process request: ${error.message}`,
       error: error.message
     };
   }
 }
-/**
- * Validate that find text exists in document - WITH FLEXIBLE MATCHING
- */
-function validateChanges(documentText, changes) {
+function validateChanges(documentText, changesOrOperations, modificationType = 'REPLACE') {
+  console.log('[VALIDATE] Type:', modificationType);
+  console.log('[VALIDATE] Document length:', documentText.length);
+  console.log('[VALIDATE] Document sample:', documentText.slice(0, 200));
+  
   const validated = [];
   const errors = [];
-  
-  console.log('[VALIDATE DEBUG] Document sample (first 500 chars):');
-  console.log(documentText.slice(0, 500));
-  console.log('[VALIDATE DEBUG] Document contains bullet "•"?', documentText.includes('•'));
-  console.log('[VALIDATE DEBUG] Document contains newlines?', documentText.includes('\n'));
-  
-  for (const change of changes) {
-    let findText = change.find.trim();
-    
-    console.log('[VALIDATE] Looking for:', {
-      text: findText.slice(0, 100),
-      hasLiteralBackslashN: findText.includes('\\n'),
-      hasActualNewline: findText.includes('\n'),
-      length: findText.length
-    })
-    if (findText.includes('\\n')) {
-      console.log('[VALIDATE] Converting literal \\n to actual newlines');
-      findText = findText.replace(/\\n/g, '\n');
-    }
-    
-    if (documentText.includes(findText)) {
-      validated.push({ ...change, find: findText });
-      console.log('[VALIDATE] ✓ Exact match found');
-      continue;
-    }
-    
-    const normalizedDoc = documentText.replace(/\s+/g, ' ').trim();
-    const normalizedFind = findText.replace(/\s+/g, ' ').trim();
-    
-    console.log('[VALIDATE] Trying normalized match:', normalizedFind.slice(0, 100));
-    
-    if (normalizedDoc.includes(normalizedFind)) {
-      const startIdx = normalizedDoc.indexOf(normalizedFind);
-      validated.push({
-        ...change,
-        find: normalizedFind,
-        _matchType: 'normalized'
-      });
-      console.log('[VALIDATE] ✓ Normalized match found');
-      continue;
-    }
-    const fuzzyDoc = normalizedDoc.replace(/[•\-\*]\s*/g, '');
-    const fuzzyFind = normalizedFind.replace(/[•\-\*]\s*/g, '');
-    
-    console.log('[VALIDATE] Trying fuzzy match:', fuzzyFind.slice(0, 100));
-    
-    if (fuzzyDoc.includes(fuzzyFind)) {
-      validated.push({
-        ...change,
-        find: fuzzyFind,
-        _matchType: 'fuzzy'
-      });
-      console.log('[VALIDATE] ✓ Fuzzy match found');
-      continue;
-    }
-    
-    const firstLine = findText.split(/[\n\r]+/)[0].trim();
-    const normalizedFirstLine = firstLine.replace(/\s+/g, ' ').replace(/[•\-\*]\s*/g, '').trim();
-    
-    console.log('[VALIDATE] Trying first-line match:', normalizedFirstLine.slice(0, 80));
-    
-    if (normalizedDoc.includes(normalizedFirstLine)) {
-      console.log('[VALIDATE] ⚠️ Found partial match (first line only), this may not work fully');
-      validated.push({
-        ...change,
-        find: normalizedFirstLine,
-        _matchType: 'partial'
-      });
-      continue;
-    }
-    
-    // Match failed - log extensive debugging info
-    console.error('[VALIDATE] ✗ No match found. Debug info:');
-    console.error('  Find text (first 150 chars):', findText.slice(0, 150));
-    console.error('  Normalized find:', normalizedFind.slice(0, 150));
-    console.error('  Fuzzy find:', fuzzyFind.slice(0, 150));
-    console.error('  Document sample around expected position:');
-    
-    const words = normalizedFind.split(' ').slice(0, 5).join(' ');
-    const similarIdx = normalizedDoc.indexOf(words);
-    if (similarIdx !== -1) {
-      console.error('  Found similar text at position', similarIdx, ':', 
-        normalizedDoc.slice(Math.max(0, similarIdx - 50), similarIdx + 200));
-    } else {
-      console.error('  No similar text found in document');
-      console.error('  Document start:', normalizedDoc.slice(0, 200));
-    }
-    
-    errors.push({
-      change,
-      error: 'Find text not found in document',
-      attempted: {
-        exact: findText.slice(0, 50),
-        normalized: normalizedFind.slice(0, 50),
-        fuzzy: fuzzyFind.slice(0, 50)
+    if (modificationType === 'REPLACE' && Array.isArray(changesOrOperations)) {
+    for (const change of changesOrOperations) {
+      let findText = change.find?.trim();
+      
+      if (!findText) {
+        errors.push({ change, error: 'Missing find text' });
+        continue;
       }
-    });
+      
+      console.log('[VALIDATE] Looking for:', findText.slice(0, 100));
+            if (findText.includes('\\n')) {
+        findText = findText.replace(/\\n/g, '\n');
+      }
+            if (documentText.includes(findText)) {
+        validated.push({ ...change, find: findText });
+        console.log('[VALIDATE] ✓ Exact match found');
+        continue;
+      }
+      
+      const normalizedDoc = documentText.replace(/\s+/g, ' ').trim();
+      const normalizedFind = findText.replace(/\s+/g, ' ').trim();
+      
+      if (normalizedDoc.includes(normalizedFind)) {
+        validated.push({ ...change, find: normalizedFind, _matchType: 'normalized' });
+        console.log('[VALIDATE] ✓ Normalized match found');
+        continue;
+      }
+            const fuzzyDoc = normalizedDoc.replace(/[•\-\*]\s*/g, '');
+      const fuzzyFind = normalizedFind.replace(/[•\-\*]\s*/g, '');
+      
+      if (fuzzyDoc.includes(fuzzyFind)) {
+        validated.push({ ...change, find: fuzzyFind, _matchType: 'fuzzy' });
+        console.log('[VALIDATE] ✓ Fuzzy match found');
+        continue;
+      }
+            const firstLine = findText.split(/[\n\r]+/)[0].trim();
+      if (normalizedDoc.includes(firstLine)) {
+        validated.push({ ...change, find: firstLine, _matchType: 'partial' });
+        console.log('[VALIDATE] ⚠️ Partial match (first line only)');
+        continue;
+      }
+      
+      console.error('[VALIDATE] ✗ No match found for:', findText.slice(0, 80));
+      errors.push({ change, error: 'Text not found in document' });
+    }
+  }
+  
+  else if (modificationType !== 'REPLACE') {
+    console.log('[VALIDATE] Non-REPLACE operation, validating structure only');
+    
+    for (const operation of changesOrOperations) {
+      if (!operation.type) {
+        errors.push({ operation, error: 'Missing operation type' });
+        continue;
+      }
+          switch (operation.type) {
+        case 'add':
+          if (!operation.content) {
+            errors.push({ operation, error: 'ADD operation missing content' });
+          } else {
+            validated.push(operation);
+            console.log('[VALIDATE] ✓ ADD operation valid');
+          }
+          break;
+          
+        case 'delete':
+          if (!operation.target) {
+            errors.push({ operation, error: 'DELETE operation missing target' });
+          } else {
+            if (documentText.includes(operation.target)) {
+              validated.push(operation);
+              console.log('[VALIDATE] ✓ DELETE target found');
+            } else {
+              errors.push({ operation, error: 'DELETE target not found in document' });
+            }
+          }
+          break;
+          
+        case 'format':
+          if (!operation.source || !operation.transformation) {
+            errors.push({ operation, error: 'FORMAT operation missing source or transformation' });
+          } else {
+            validated.push(operation);
+            console.log('[VALIDATE] ✓ FORMAT operation valid');
+          }
+          break;
+          
+        case 'transform':
+          if (!operation.target) {
+            errors.push({ operation, error: 'TRANSFORM operation missing target content' });
+          } else {
+            validated.push(operation);
+            console.log('[VALIDATE] ✓ TRANSFORM operation valid');
+          }
+          break;
+          
+        default:
+          validated.push(operation);
+          console.log('[VALIDATE] ✓ Operation accepted:', operation.type);
+      }
+    }
   }
   
   console.log(`[VALIDATE] Result: ${validated.length} validated, ${errors.length} errors`);
