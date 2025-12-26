@@ -118,12 +118,15 @@ async function getAIResponse(
   industry
 ) {
   console.log("[AI FLOW] Preparing normal AI response...");
+  console.log("[AI FLOW] Extracted text available:", extractedText ? `${extractedText.length} chars` : "none");
 
   const { engineKeys, webSearch: gptWebSearch } = await classifyEnginesWithGPT(
     message
   );
 
   let webResults = "";
+  let hasWebResults = false;
+  
   if (gptWebSearch || shouldSearchWeb(message, extractedText)) {
     console.log("[AI FLOW] Performing web search...");
     let freshResults = [];
@@ -135,6 +138,7 @@ async function getAIResponse(
 
     let extractsAdded = 0;
     if (freshResults.length) {
+      hasWebResults = true;
       webResults = `Web search results (latest, as of ${new Date()
         .toISOString()
         .slice(0, 10)}):\n`;
@@ -152,8 +156,8 @@ async function getAIResponse(
         }
       }
       if (extractsAdded === 0) {
-        webResults =
-          "No usable web data found in top results. Try another question.";
+        hasWebResults = false;
+        webResults = "";
       } else {
         webResults += "\nReferences:\n";
         let refNum = 1;
@@ -171,24 +175,58 @@ async function getAIResponse(
     }
   }
 
-  const strictCitationRules = `
+  // ===== BUILD APPROPRIATE PROMPT BASED ON AVAILABLE DATA =====
+  let systemInstructions = "";
+  
+  if (extractedText && extractedText.trim().length > 50) {
+    // User uploaded a document - prioritize that
+    console.log("[AI FLOW] Using document-focused prompt");
+    systemInstructions = `
+You are an AI assistant analyzing uploaded documents.
+
+UPLOADED DOCUMENT CONTENT:
+${extractedText}
+
+${webResults ? `\n\nADDITIONAL WEB CONTEXT:\n${webResults}\n` : ''}
+
+Instructions:
+- Answer the user's question based primarily on the uploaded document content above
+- Provide detailed, insightful analysis
+- Quote relevant sections when helpful
+- If web results are provided, you may reference them as supplementary context
+- Be thorough and professional
+`;
+  } else if (hasWebResults) {
+    // Only web search results available
+    console.log("[AI FLOW] Using web-search-focused prompt");
+    systemInstructions = `
 RULES FOR ANSWERING:
 - Only answer using factual info in the EXTRACTED PAGE CONTENT below.
 - If content does not answer query, say: "I could not find a direct answer."
 - Always quote extracts and show source inline.
+
 ${webResults}
 `;
+  } else {
+    // No document, no web results - use general knowledge
+    console.log("[AI FLOW] Using general knowledge prompt");
+    systemInstructions = `
+You are a helpful AI assistant. Answer the user's question using your knowledge and the conversation context.
+Be helpful, detailed, and professional.
+`;
+  }
 
   const combinedPrompt =
-    strictCitationRules +
+    systemInstructions +
+    "\n\n" +
     buildCombinedPrompt({
       engineKeys,
       message,
-      extractedText,
+      extractedText: "", // Already included in systemInstructions
       companyName,
       location,
       industry,
-      webResults: "",
+      webResults: "", // Already included in systemInstructions
     });
 
   const todayUS = new Date().toLocaleDateString("en-US");
@@ -296,27 +334,120 @@ async function handleCombinedRequest(
   req
 ) {
   console.log("[COMBINED] Generating content + export...");
-  console.log("[COMBINED] User info:", { userId: user?.id, sessId }); // ✅ DEBUG LOG
+  console.log("[COMBINED] User info:", { userId: user?.id, sessId });
 
-  // ✅ ADD VALIDATION
   if (!user || !user.id) {
     console.error("[COMBINED] ERROR: user or user.id is missing", user);
     throw new Error("User information is missing");
   }
 
+  const [convRows] = await pool.query(
+    "SELECT id FROM conversations WHERE session_id = ? AND user_id = ?",
+    [sessId, user.id]
+  );
+  const conversation_id = convRows.length ? convRows[0].id : null;
+
+  if (!conversation_id) {
+    console.error("[COMBINED] No conversation found");
+    throw new Error("Conversation not found");
+  }
+
+  const [allMessages] = await pool.query(
+    "SELECT id, sender, message FROM messages WHERE conversation_id = ? ORDER BY id ASC",
+    [conversation_id]
+  );
+
+  const detectionPrompt = `
+Analyze this user request and determine:
+- Does the user want to export the EXISTING conversation/chat? Reply: EXPORT_CONVERSATION
+- Does the user want to CREATE/GENERATE something new and export it? Reply: GENERATE_CONTENT
+
+User request: "${contentRequest}"
+
+Reply with ONLY one word: EXPORT_CONVERSATION or GENERATE_CONTENT
+`;
+
+  let isPureExportRequest = false;
+  
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "user", content: detectionPrompt }
+        ],
+      }),
+    });
+
+    const data = await response.json();
+    const result = data.choices[0].message.content.trim();
+    
+    console.log("[COMBINED] AI Detection Result:", result);
+    
+    isPureExportRequest = result === "EXPORT_CONVERSATION";
+    
+  } catch (error) {
+    console.error("[COMBINED] Detection failed:", error);
+    isPureExportRequest = false; 
+  }
+
+  if (isPureExportRequest) {
+    console.log("[COMBINED] Exporting existing conversation...");
+    
+    let exportContent = allMessages
+      .map(msg => {
+        const label = msg.sender === 'user' ? '👤 User' : '🤖 Assistant';
+        return `${label}:\n${msg.message}\n`;
+      })
+      .join('\n---\n\n');
+
+    exportContent = stripAIDownloadLinks(exportContent);
+    exportContent = cleanExportContent(exportContent);
+
+    let aiTitle = "Defizer Conversation";
+    try {
+      aiTitle = await generateExportTitle(messageHistory, exportContent);
+      if (!aiTitle || aiTitle.length < 3) aiTitle = "Defizer Conversation";
+    } catch (e) {
+      console.error("[COMBINED EXPORT TITLE ERROR]", e);
+    }
+
+    let fileObj = null;
+    try {
+      fileObj = await exportFile(exportContent, sessId, aiTitle, exportType);
+    } catch (e) {
+      console.error("[COMBINED EXPORT ERROR]", e);
+    }
+
+    const replyText = fileObj?.url
+      ? `✅ I've exported the conversation for you.<br/><br/>📄 Download: <a href="${BASE_URL}${fileObj.url}" target="_blank" download>${fileObj.name}</a>`
+      : "I've prepared the export but the download link failed. Please try again.";
+
+    await saveMessage(sessId, user.id, "bot", replyText, req.app.get("io"));
+
+    console.log("[COMBINED] Pure export completed");
+    return replyText;
+  }
+  console.log("[COMBINED] Generating new content...");
+  
   const { engineKeys, webSearch: gptWebSearch } = await classifyEnginesWithGPT(
     contentRequest
   );
 
   let webResults = "";
   if (gptWebSearch || shouldSearchWeb(contentRequest, extractedText)) {
-    console.log("[COMBINED] Performing web search for combined request...");
+    console.log("[COMBINED] Performing web search...");
     let freshResults = [];
     try {
       freshResults = await latestWebSearch(contentRequest, 5, true);
     } catch (e) {
       console.error("[COMBINED] Web search error:", e);
-      // ✅ Don't fail the entire request if search fails - continue without it
     }
 
     let extractsAdded = 0;
@@ -376,25 +507,17 @@ async function handleCombinedRequest(
   let finalOutput =
     aiData.choices?.[0]?.message?.content || "No response from AI.";
 
-  // ✅ ADD TRY-CATCH around saveMessage
   try {
-    console.log(
-      "[COMBINED] Saving message with userId:",
-      user.id,
-      "sessId:",
-      sessId
-    );
     await saveMessage(sessId, user.id, "bot", finalOutput, req.app.get("io"));
-    console.log("[COMBINED] Message saved successfully");
+    console.log("[COMBINED] Message saved");
   } catch (saveError) {
     console.error("[COMBINED] Failed to save message:", saveError);
-    // Continue anyway - export generation is still possible
   }
 
-  // Generate export file
   let exportContent = stripAIDownloadLinks(finalOutput);
   exportContent = cleanExportContent(exportContent);
   const aiTitle = contentRequest.split(" ").slice(0, 6).join(" ");
+  
   let fileObj = null;
   try {
     fileObj = await exportFile(exportContent, sessId, aiTitle, exportType);
@@ -828,6 +951,9 @@ Important:
 }// ============================================================================
 // MAIN CHAT ENDPOINT
 // ============================================================================
+// ============================================================================
+// MAIN CHAT ENDPOINT - UPDATED WITH FILE PERSISTENCE
+// ============================================================================
 router.post(
   "/api/chat",
   authenticate,
@@ -857,6 +983,9 @@ router.post(
       if (!user) return res.status(404).json({ error: "User not found" });
 
       console.log("[CHAT] User found:", { user });
+
+      // ===== GET OR CREATE CONVERSATION =====
+      const conversation_id = await getOrCreateConversation(sessId, id);
 
       // ===== WEATHER BRANCH =====
       const weatherCity = isWeatherQuery(message);
@@ -919,6 +1048,7 @@ Please give a friendly, concise weather update, just like a human would in chat.
       );
       if (
         convRowsTitle.length &&
+        message &&
         (!convRowsTitle[0].title || !convRowsTitle[0].title.trim())
       ) {
         const firstWords = message.split(" ").slice(0, 7).join(" ");
@@ -932,12 +1062,6 @@ Please give a friendly, concise weather update, just like a human would in chat.
       }
 
       // ===== LOAD MESSAGE HISTORY =====
-      const [convRows] = await pool.query(
-        "SELECT id FROM conversations WHERE session_id = ? AND user_id = ?",
-        [sessId, id]
-      );
-      const conversation_id = convRows.length ? convRows[0].id : null;
-
       let messageHistory = [];
       let allMessages = [];
       if (conversation_id) {
@@ -953,6 +1077,175 @@ Please give a friendly, concise weather update, just like a human would in chat.
         );
         allMessages = fullMsgs;
         console.log("[CHAT] Loaded message history:", messageHistory.length);
+      }
+
+      // ===== FILE HANDLING - SAVE NEW FILES TO DATABASE =====
+      let extractedText = "";
+      let importedFiles = [];
+      let newFilesUploaded = false;
+
+      if (req.files && req.files.length > 0) {
+        console.log("[CHAT] Processing uploaded files:", req.files.length);
+        newFilesUploaded = true;
+
+        try {
+          for (const file of req.files) {
+            const fileExt = path
+              .extname(file.originalname)
+              .toLowerCase()
+              .slice(1);
+            const importResult = await importFile(file.path, fileExt);
+            
+            if (importResult.success) {
+              extractedText += importResult.extractedText + "\n\n";
+              importedFiles.push({
+                ...importResult,
+                filePath: file.path,
+                originalName: file.originalname,
+                fileType: fileExt
+              });
+
+              // ===== SAVE FILE INFO TO DATABASE =====
+              await pool.query(
+                "INSERT INTO uploaded_files (conversation_id, user_id, file_path, original_name, file_type) VALUES (?, ?, ?, ?, ?)",
+                [conversation_id, id, file.path, file.originalname, fileExt]
+              );
+              
+              console.log("[CHAT] File saved to database:", file.originalname);
+            } else {
+              console.error("[CHAT] File import failed:", importResult.error);
+              extractedText += `[Failed to import ${file.originalname}: ${importResult.error}]\n\n`;
+            }
+          }
+        } catch (e) {
+          console.error("[CHAT] File processing error:", e);
+          extractedText += `[Error processing files: ${e.message}]\n\n`;
+        }
+      }
+      let previousFile = null;
+      
+      if (!newFilesUploaded && message && extractedText.length === 0) {
+        const intentResult = await detectDocumentIntent(message, OPENAI_API_KEY);
+        
+        console.log("[CHAT] Intent for message without file:", intentResult.intent);
+                let requiresPreviousFile = false;
+        
+        if (intentResult.intent === "MODIFY" || intentResult.intent === "ANALYZE") {
+          try {
+            const fileReferenceCheck = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${OPENAI_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: "gpt-4o-mini",
+                temperature: 0,
+                messages: [
+                  {
+                    role: "user",
+                    content: `Does this message refer to a SPECIFIC previously uploaded file/document? Reply with only YES or NO.
+
+Message: "${message}"
+
+Reply YES if:
+- User says "the document", "this file", "that PDF", "the spreadsheet"
+- User says "analyze it", "modify it", "summarize it" (referring to something specific)
+- User mentions a specific file they already uploaded
+
+Reply NO if:
+- User asks to create/generate/explain something NEW
+- User asks general questions like "explain AWS", "what is X", "create a report"
+- No reference to a previously uploaded file
+
+Reply with ONE WORD: YES or NO`
+                  }
+                ],
+              }),
+            });
+
+            const checkData = await fileReferenceCheck.json();
+            const result = checkData.choices[0].message.content.trim().toUpperCase();
+            
+            console.log("[CHAT] File reference check:", result);
+            
+            requiresPreviousFile = result === "YES";
+            
+          } catch (error) {
+            console.error("[CHAT] File reference check failed:", error);
+            requiresPreviousFile = intentResult.intent === "MODIFY";
+          }
+        }
+        
+        if (requiresPreviousFile) {
+          console.log("[CHAT] Document action intent detected, looking for previous file...");
+                    const [previousFiles] = await pool.query(
+            "SELECT * FROM uploaded_files WHERE conversation_id = ? ORDER BY uploaded_at DESC LIMIT 1",
+            [conversation_id]
+          );
+
+          if (previousFiles.length > 0) {
+            previousFile = previousFiles[0];
+            console.log("[CHAT] Found previous file:", previousFile.original_name);
+            if (fs.existsSync(previousFile.file_path)) {
+              const importResult = await importFile(previousFile.file_path, previousFile.file_type);
+              
+              if (importResult.success) {
+                extractedText = importResult.extractedText;
+                importedFiles.push({
+                  ...importResult,
+                  filePath: previousFile.file_path,
+                  originalName: previousFile.original_name,
+                  fileType: previousFile.file_type
+                });
+                console.log("[CHAT] Previous file loaded successfully, extracted text length:", extractedText.length);
+              } else {
+                console.error("[CHAT] Failed to import previous file:", importResult.error);
+              }
+            } else {
+              console.log("[CHAT] Previous file no longer exists on disk");
+              await saveMessage(
+                sessId, 
+                id, 
+                "bot", 
+                "⚠️ The previously uploaded file is no longer available. Please upload the file again.", 
+                req.app.get("io")
+              );
+              if (user.role === "free") {
+                await pool.query(
+                  "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
+                  [id]
+                );
+              }
+              return res.json({ 
+                reply: "⚠️ The previously uploaded file is no longer available. Please upload the file again." 
+              });
+            }
+          } else {
+            console.log("[CHAT] No previous file found - treating as normal query");
+            // Don't block the request, just continue with normal flow
+          }
+        } else {
+          console.log("[CHAT] Not a file-specific request, continuing with normal flow");
+        }
+      }
+      // ===== HANDLE FILE-ONLY MESSAGE (No text) =====
+      if (newFilesUploaded && (!message || message.trim().length === 0)) {
+        console.log("[CHAT] File-only upload detected");
+        
+        const fileNames = importedFiles.map(f => f.originalName).join(", ");
+        const replyText = `✅ File(s) received: **${fileNames}**\n\n\n- Ask me questions about the content\n- Request modifications\n- Ask me to analyze or summarize it\n\nWhat would you like me to do?`;
+        
+        await saveMessage(sessId, id, "bot", replyText, req.app.get("io"));
+        
+        if (user.role === "free") {
+          await pool.query(
+            "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
+            [id]
+          );
+        }
+        
+        return res.json({ reply: replyText });
       }
 
       // ===== DETECT USER INTENT =====
@@ -972,68 +1265,40 @@ Please give a friendly, concise weather update, just like a human would in chat.
         wordCount,
       });
 
-      // ===== FILE EXTRACTION =====
-      let extractedText = "";
-      let importedFiles = [];
-      if (req.files && req.files.length > 0) {
-        console.log("[CHAT] Processing uploaded files:", req.files.length);
-        try {
-          for (const file of req.files) {
-            const fileExt = path
-              .extname(file.originalname)
-              .toLowerCase()
-              .slice(1);
-            const importResult = await importFile(file.path, fileExt);
-            console.log("🚀 ~ importResult:", importResult);
-            if (importResult.success) {
-              extractedText += importResult.extractedText + "\n\n";
-              importedFiles.push(importResult);
-              console.log("[CHAT] File imported:", file.originalname);
-            } else {
-              console.error("[CHAT] File import failed:", importResult.error);
-              extractedText += `[Failed to import ${file.originalname}: ${importResult.error}]\n\n`;
-            }
-          }
-        } catch (e) {
-          console.error("[CHAT] File processing error:", e);
-          extractedText += `[Error processing files: ${e.message}]\n\n`;
-        }
-      }
-
       // ===== DOCUMENT MODIFICATION =====
       if (importedFiles.length && message) {
-        const intentResult = await detectDocumentIntent(
-          message,
-          OPENAI_API_KEY
-        );
-        console.log("[CHAT] Checking document modification...");
+        const intentResult = await detectDocumentIntent(message, OPENAI_API_KEY);
+        console.log("[CHAT] Document intent:", intentResult.intent);
+        
         if (intentResult.intent === "MODIFY") {
+          // Use the file from importedFiles (either new or previously uploaded)
+          const fileToModify = {
+            path: importedFiles[0].filePath,
+            originalname: importedFiles[0].originalName
+          };
+
           const modResult = await handleDocumentModification(
-            req.files[0],
+            fileToModify,
             message,
             sessId,
             user,
             req
           );
+          
           if (modResult.success) {
             console.log("[CHAT] Document modification completed successfully");
             return res.json({ reply: modResult.reply });
           } else if (modResult.reply) {
-            console.log(
-              "[CHAT] Document modification failed:",
-              modResult.reply
-            );
+            console.log("[CHAT] Document modification failed:", modResult.reply);
             return res.json({ reply: modResult.reply });
           }
-          console.log(
-            "[CHAT] Not a modification request, continuing to normal AI flow"
-          );
+          console.log("[CHAT] Not a modification request, continuing to normal AI flow");
         }
       }
+
       // ===== PURE EXPORT =====
       if (isPureExport && doExport) {
         console.log("[CHAT] Handling pure export...");
-        console.log("[CHAT] allMessages count:", allMessages.length);
         const reply = await handlePureExport(
           allMessages,
           messageHistory,
@@ -1047,10 +1312,8 @@ Please give a friendly, concise weather update, just like a human would in chat.
       // ===== COMBINED REQUEST (content + export) =====
       if (combinedRequest) {
         console.log("[CHAT] Handling combined request...");
-        const contentRequest = await extractContentRequest(
-          message,
-          OPENAI_API_KEY
-        );
+        const contentRequest = await extractContentRequest(message, OPENAI_API_KEY);
+        
         if (!contentRequest) {
           return res.json({
             reply: "Please tell me what content you want to generate.",
@@ -1084,6 +1347,7 @@ Please give a friendly, concise weather update, just like a human would in chat.
       );
 
       await saveMessage(sessId, id, "bot", finalOutput, req.app.get("io"));
+      
       if (user.role === "free") {
         await pool.query(
           "UPDATE users SET queries_used = queries_used + 1 WHERE id=?",
@@ -1093,6 +1357,7 @@ Please give a friendly, concise weather update, just like a human would in chat.
 
       console.log("[CHAT] AI response sent");
       return res.json({ reply: finalOutput });
+
     } catch (err) {
       console.error("[CHAT] AI ERROR:", err?.message || err);
       if (err.response) {
@@ -1105,21 +1370,10 @@ Please give a friendly, concise weather update, just like a human would in chat.
       }
       res.status(500).json({ error: err?.message || err });
     } finally {
-      // ===== CLEANUP FILES =====
-      if (req.files && req.files.length > 0) {
-        for (const file of req.files) {
-          try {
-            if (fs.existsSync(file.path)) await fs.promises.unlink(file.path);
-            console.log("[CHAT] File cleaned up:", file.originalname);
-          } catch (e) {
-            console.error("[FILE CLEANUP ERROR]", e);
-          }
-        }
-      }
+      console.log("[CHAT] Request completed - files retained for conversation");
     }
   }
 );
-
 // ===== FIXED EXPORT ENDPOINT with ALL MIME types =====
 router.post("/api/export/:format", authenticate, async (req, res) => {
   const { conversationId } = req.body;
