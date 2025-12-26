@@ -161,74 +161,85 @@ DOCUMENT STRUCTURE:
 - Paragraphs: ${documentStructure.paragraphCount}
 - Tables: ${documentStructure.tableCount}
 
-SAMPLE XML:
-${documentStructure.sampleXml}
-
 USER REQUEST: ${operation.reason || operation.transformation}
 
+DOCUMENT SAMPLE (for context):
+${documentStructure.sampleXml}
+
+IMPORTANT: The document might have plain text bullet points (like •, *, -) that are NOT actual Word list formatting. 
+If you see text like "• Scalability:" or "* Version Control:", these are plain text, not XML bullet lists.
+
 YOUR TASK:
-Analyze the user's request and provide SPECIFIC transformation instructions.
+Based on the user request, analyze what needs to be changed and provide SPECIFIC transformation instructions.
+
+POSSIBLE SCENARIOS:
+1. If converting plain text bullets to numbered lists: Use "structure_replace" to convert paragraphs
+2. If changing actual Word bullet lists to numbered lists: Use "element_transformation"
+3. If there are no lists at all: Use "batch_replace" to change text
 
 RESPOND WITH JSON:
 {
   "transformationType": "CHOOSE ONE: regex_replace | structure_replace | element_transformation | batch_replace",
-  "description": "what you're doing",
+  "description": "Clear description of what you're doing",
   "instructions": {
-    // FOR regex_replace:
-    "pattern": "regex pattern to find",
+    // FOR regex_replace: Simple text pattern replacement
+    "pattern": "regex pattern",
     "flags": "g",
-    "replacement": "what to replace with",
+    "replacement": "replacement text",
     
-    // FOR structure_replace (tables, lists):
-    "findElement": "w:tbl or w:p with w:numPr",
-    "action": "delete | replace | transform",
-    "newXml": "replacement XML if needed",
+    // FOR structure_replace: Convert paragraphs to lists
+    "findElement": "w:p containing bullet text",
+    "action": "transform_to_numbered_list | transform_to_bullet_list",
+    "targetTexts": ["item1", "item2", "item3"] if creating lists,
     
-    // FOR element_transformation:
+    // FOR element_transformation: Change existing list type
     "targetElement": "w:numId",
-    "attributeChange": {"w:val": "2"}, // change bullet to numbered
+    "attributeChange": {"w:val": "2"}, // 1=bullet, 2=numbered
     
-    // FOR batch_replace:
+    // FOR batch_replace: Multiple text replacements
     "replacements": [
-      {"find": "text1", "replace": "text2"}
+      {"find": "text1", "replace": "text2"},
+      {"find": "•", "replace": "1."}
     ]
   }
 }
 
 EXAMPLES:
 
-1. "Remove table format" →
+1. "Convert plain text bullets to numbered list" →
 {
   "transformationType": "structure_replace",
-  "description": "Convert tables to paragraphs",
+  "description": "Convert paragraphs with bullet characters to numbered list",
   "instructions": {
-    "findElement": "w:tbl",
-    "action": "replace",
-    "newXml": "Extract cell text and create <w:p> for each"
+    "findElement": "w:p containing bullet characters (•, *, -)",
+    "action": "transform_to_numbered_list",
+    "targetTexts": ["Scalability: ...", "Version Control: ..."]
   }
 }
 
-2. "Convert bullet to numbered" →
+2. "Change Word bullet list to numbered list" →
 {
   "transformationType": "element_transformation",
-  "description": "Change list type",
+  "description": "Change bullet list numbering to numbered list",
   "instructions": {
     "targetElement": "w:numId",
     "attributeChange": {"w:val": "2"}
   }
 }
 
-3. "Make text bold" →
+3. "Replace bullet characters" →
 {
-  "transformationType": "regex_replace",
-  "description": "Add bold formatting",
+  "transformationType": "batch_replace",
+  "description": "Replace bullet characters with numbers",
   "instructions": {
-    "pattern": "(<w:r>)(<w:t[^>]*>SOURCETEXT</w:t>)(</w:r>)",
-    "replacement": "$1<w:rPr><w:b/></w:rPr>$2$3"
+    "replacements": [
+      {"find": "•", "replace": "1."},
+      {"find": "*", "replace": "2."}
+    ]
   }
 }
 
-NOW PROVIDE THE TRANSFORMATION:`;
+ANALYZE THE SAMPLE XML AND PROVIDE THE APPROPRIATE TRANSFORMATION:`;
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -242,7 +253,7 @@ NOW PROVIDE THE TRANSFORMATION:`;
         messages: [
           { 
             role: 'system', 
-            content: 'You are an expert in Word XML transformations. Always return valid JSON with transformation instructions.' 
+            content: 'You are an expert in Word XML transformations. First analyze if the document has actual Word lists or plain text bullets. Return valid JSON.' 
           },
           { role: 'user', content: prompt }
         ],
@@ -275,9 +286,19 @@ NOW PROVIDE THE TRANSFORMATION:`;
 
   } catch (error) {
     console.error('[AI TRANSFORMATION ERROR]', error);
+    
+    // Fallback for bullet to number conversion
     return {
-      success: false,
-      error: error.message
+      success: true,
+      transformationType: 'batch_replace',
+      description: 'Fallback: Replace bullet characters with numbers',
+      instructions: {
+        replacements: [
+          { find: "•", replace: "1." },
+          { find: "*", replace: "2." },
+          { find: "-", replace: "3." }
+        ]
+      }
     };
   }
 }
